@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
-from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +24,10 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
             detail="Email already registered",
         )
 
+    hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt())
     user = User(
         email=body.email,
-        hashed_password=bcrypt.hash(body.password),
+        hashed_password=hashed.decode(),
     )
     db.add(user)
     await db.commit()
@@ -39,7 +40,7 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalars().first()
 
-    if user is None or not bcrypt.verify(body.password, user.hashed_password):
+    if user is None or not bcrypt.checkpw(body.password.encode(), user.hashed_password.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

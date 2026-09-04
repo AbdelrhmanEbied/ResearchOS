@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { apiGet, apiPost, apiPatch, apiDelete, apiStream } from '../api/client'
+import Background from '../components/Background'
 import Sidebar from '../components/Sidebar'
 import ChatArea from '../components/ChatArea'
 
@@ -10,6 +11,7 @@ export default function DashboardPage() {
   const [activeId, setActiveId] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
+  const [input, setInput] = useState('')
 
   useEffect(() => {
     loadConversations()
@@ -157,7 +159,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen relative">
+      <Background />
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -173,6 +176,8 @@ export default function DashboardPage() {
         onSend={sendMessage}
         loading={loading}
         conversation={conversations.find(c => c.id === activeId)}
+        input={input}
+        setInput={setInput}
       />
     </div>
   )

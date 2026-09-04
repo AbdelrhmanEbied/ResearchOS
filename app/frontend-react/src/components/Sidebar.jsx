@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ThemeToggle from './ThemeToggle'
 
 export default function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, onRename, user, onLogout }) {
   const [search, setSearch] = useState('')
@@ -22,14 +23,34 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
   }
 
   return (
-    <div className="w-64 h-screen flex flex-col glass border-r border-[var(--border-color)]">
-      <div className="p-4 border-b border-[var(--border-color)]">
-        <button onClick={onNew} className="btn-primary w-full text-sm py-2">
+    <aside
+      className="w-64 h-screen flex flex-col shrink-0"
+      style={{
+        background: 'var(--panel)',
+        backdropFilter: 'blur(24px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(24px) saturate(120%)',
+        borderRight: '1px solid var(--border)',
+      }}
+    >
+      {/* Header */}
+      <div className="p-4" style={{ borderBottom: '1px solid var(--border)' }}>
+        <button
+          onClick={onNew}
+          className="w-full py-2 px-4 rounded-lg text-sm font-medium transition-all duration-180"
+          style={{
+            background: 'var(--panel)',
+            border: '1px solid var(--border)',
+            color: 'var(--text)',
+          }}
+          onMouseEnter={e => { e.target.style.background = 'var(--panel-strong)'; e.target.style.borderColor = 'var(--border-strong)' }}
+          onMouseLeave={e => { e.target.style.background = 'var(--panel)'; e.target.style.borderColor = 'var(--border)' }}
+        >
           + New chat
         </button>
       </div>
 
-      <div className="p-3">
+      {/* Search */}
+      <div className="px-3 py-2">
         <input
           type="text"
           value={search}
@@ -39,19 +60,25 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
         />
       </div>
 
+      {/* Conversations */}
       <div className="flex-1 overflow-y-auto px-2">
-        <div className="text-xs font-medium text-[var(--text-secondary)] px-2 py-1 uppercase tracking-wide">
+        <div
+          className="text-xs font-medium px-2 py-1 uppercase tracking-wide"
+          style={{ color: 'var(--text-faint)' }}
+        >
           Chats
         </div>
         {filtered.map(conv => (
           <div
             key={conv.id}
             onClick={() => onSelect(conv.id)}
-            className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-              activeId === conv.id
-                ? 'bg-[var(--accent)]/10 text-[var(--accent)]'
-                : 'hover:bg-white/5 text-[var(--text-secondary)]'
-            }`}
+            className="group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150"
+            style={{
+              background: activeId === conv.id ? 'var(--panel-strong)' : 'transparent',
+              color: activeId === conv.id ? 'var(--text)' : 'var(--text-dim)',
+            }}
+            onMouseEnter={e => { if (activeId !== conv.id) e.currentTarget.style.background = 'var(--panel)' }}
+            onMouseLeave={e => { if (activeId !== conv.id) e.currentTarget.style.background = 'transparent' }}
           >
             {editingId === conv.id ? (
               <input
@@ -60,6 +87,7 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
                 onBlur={submitRename}
                 onKeyDown={(e) => e.key === 'Enter' && submitRename()}
                 className="flex-1 bg-transparent text-sm outline-none"
+                style={{ color: 'var(--text)' }}
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
               />
@@ -69,13 +97,19 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
             <div className="hidden group-hover:flex gap-1">
               <button
                 onClick={(e) => { e.stopPropagation(); startRename(conv) }}
-                className="text-[var(--text-secondary)] hover:text-white text-xs p-1"
+                className="text-xs p-1 rounded transition-colors duration-150"
+                style={{ color: 'var(--text-faint)' }}
+                onMouseEnter={e => e.target.style.color = 'var(--text)'}
+                onMouseLeave={e => e.target.style.color = 'var(--text-faint)'}
               >
                 ✏️
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(conv.id) }}
-                className="text-[var(--text-secondary)] hover:text-red-400 text-xs p-1"
+                className="text-xs p-1 rounded transition-colors duration-150"
+                style={{ color: 'var(--text-faint)' }}
+                onMouseEnter={e => { e.target.style.color = 'var(--danger)'; e.target.style.background = 'rgba(229,100,95,0.12)' }}
+                onMouseLeave={e => { e.target.style.color = 'var(--text-faint)'; e.target.style.background = 'transparent' }}
               >
                 🗑️
               </button>
@@ -84,17 +118,24 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
         ))}
       </div>
 
-      <div className="p-3 border-t border-[var(--border-color)]">
+      {/* Footer */}
+      <div className="p-3" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="flex items-center justify-between mb-2">
+          <ThemeToggle />
+        </div>
         <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--text-secondary)] truncate">{user?.email}</span>
+          <span className="text-sm truncate" style={{ color: 'var(--text-dim)' }}>{user?.email}</span>
           <button
             onClick={onLogout}
-            className="text-xs text-[var(--text-secondary)] hover:text-red-400 transition-colors"
+            className="text-xs transition-colors duration-150"
+            style={{ color: 'var(--text-faint)' }}
+            onMouseEnter={e => e.target.style.color = 'var(--danger)'}
+            onMouseLeave={e => e.target.style.color = 'var(--text-faint)'}
           >
             Logout
           </button>
         </div>
       </div>
-    </div>
+    </aside>
   )
 }

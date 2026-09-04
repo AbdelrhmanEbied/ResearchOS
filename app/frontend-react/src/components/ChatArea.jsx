@@ -1,79 +1,66 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import Hero from './Hero'
 import MessageBubble from './MessageBubble'
+import Composer from './Composer'
 
-export default function ChatArea({ messages, onSend, loading, conversation }) {
-  const [input, setInput] = useState('')
+export default function ChatArea({ messages, onSend, loading, conversation, input, setInput }) {
   const messagesEndRef = useRef(null)
-  const textareaRef = useRef(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!input.trim() || loading) return
-    onSend(input.trim())
-    setInput('')
-  }
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit(e)
-    }
-  }
-
   return (
-    <div className="flex-1 flex flex-col h-screen">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)]">
-        <h2 className="font-medium truncate">
+    <div className="flex-1 flex flex-col h-screen relative z-10">
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-6 py-4 shrink-0"
+        style={{ borderBottom: '1px solid var(--border)' }}
+      >
+        <h2 className="font-medium truncate" style={{ color: 'var(--text)' }}>
           {conversation?.title || 'New Chat'}
         </h2>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center">
-            <h1 className="text-4xl font-serif font-bold mb-3">How can I help you today?</h1>
-            <p className="text-[var(--text-secondary)]">Ask me anything about your research</p>
+            <Hero />
+            <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
+              Ask me anything about your research
+            </p>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto space-y-6">
-            {messages.map(msg => (
-              <MessageBubble key={msg.id} message={msg} />
+            {messages.map((msg, i) => (
+              <MessageBubble key={msg.id} message={msg} animate={i === messages.length - 1} />
             ))}
+            {loading && messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.content === '' && (
+              <div className="flex justify-start">
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{ background: 'var(--assistant-bg)', border: '1px solid var(--border)' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="thinking-dot" />
+                    <span className="text-sm" style={{ color: 'var(--text-dim)' }}>Thinking...</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
-      <div className="px-6 pb-6">
-        <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
-          <div className="glass rounded-xl flex items-end gap-2 p-2">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask a question..."
-              className="flex-1 bg-transparent resize-none outline-none px-3 py-2 text-sm max-h-32"
-              rows={1}
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || loading}
-              className="btn-primary px-4 py-2 text-sm"
-            >
-              {loading ? '...' : '→'}
-            </button>
-          </div>
-          <p className="text-center text-xs text-[var(--text-secondary)] mt-2">
-            Press Enter to send, Shift+Enter for new line
-          </p>
-        </form>
-      </div>
+      {/* Composer */}
+      <Composer
+        input={input}
+        setInput={setInput}
+        onSubmit={() => { if (input.trim()) { onSend(input.trim()); setInput('') } }}
+        loading={loading}
+      />
     </div>
   )
 }

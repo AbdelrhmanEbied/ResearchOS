@@ -13,14 +13,15 @@ from app.backend.database.models import (
 
 
 class ConversationRepository:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, user_id: int | None = None):
         self.db = db
+        self.user_id = user_id
 
     async def create(
         self,
         title: str | None = None,
     ) -> Conversation:
-        conversation = Conversation(title=title)
+        conversation = Conversation(title=title, user_id=self.user_id)
 
         self.db.add(conversation)
         await self.db.commit()
@@ -28,7 +29,11 @@ class ConversationRepository:
         return conversation
 
     async def get_by_id(self, conversation_id: int) -> Conversation | None:
-        return await self.db.get(Conversation, conversation_id)
+        stmt = select(Conversation).where(Conversation.id == conversation_id)
+        if self.user_id is not None:
+            stmt = stmt.where(Conversation.user_id == self.user_id)
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
 
     async def delete(
         self,
@@ -45,15 +50,16 @@ class ConversationRepository:
         return True
 
     async def list_all(self) -> list[Conversation]:
-        result = await self.db.execute(
-            select(Conversation).order_by(Conversation.updated_at.desc())
-        )
+        stmt = select(Conversation).order_by(Conversation.updated_at.desc())
+        if self.user_id is not None:
+            stmt = stmt.where(Conversation.user_id == self.user_id)
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def search(self, query: str) -> list[Conversation]:
         like = f"%{query.strip()}%"
         matching_ids = select(Message.conversation_id).filter(Message.content.ilike(like))
-        result = await self.db.execute(
+        stmt = (
             select(Conversation)
             .filter(
                 or_(
@@ -63,6 +69,9 @@ class ConversationRepository:
             )
             .order_by(Conversation.updated_at.desc())
         )
+        if self.user_id is not None:
+            stmt = stmt.where(Conversation.user_id == self.user_id)
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def touch(self, conversation: Conversation) -> Conversation:
@@ -203,8 +212,9 @@ class MessageRepository:
 
 
 class DocumentRepository:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, user_id: int | None = None):
         self.db = db
+        self.user_id = user_id
 
     async def create(
         self,
@@ -224,15 +234,25 @@ class DocumentRepository:
         return await self.db.get(Document, document_id)
 
     async def list_all(self) -> list[Document]:
-        result = await self.db.execute(select(Document).order_by(Document.id.desc()))
+        stmt = select(Document).order_by(Document.id.desc())
+        if self.user_id is not None:
+            stmt = stmt.join(ConversationDocument).join(Conversation).where(
+                Conversation.user_id == self.user_id
+            )
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def list_all_with_conversations(self) -> list[Document]:
-        result = await self.db.execute(
+        stmt = (
             select(Document)
             .options(joinedload(Document.links).joinedload(ConversationDocument.conversation))
             .order_by(Document.id.desc())
         )
+        if self.user_id is not None:
+            stmt = stmt.join(ConversationDocument).join(Conversation).where(
+                Conversation.user_id == self.user_id
+            )
+        result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
     async def link_to_conversation(self, conversation_id: int, document_id: int) -> ConversationDocument:

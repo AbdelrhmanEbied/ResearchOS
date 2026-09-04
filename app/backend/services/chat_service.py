@@ -85,10 +85,11 @@ PROVIDER_LABELS = {
 
 
 class ChatService:
-    def __init__(self, graph, db: AsyncSession, rag=None):
+    def __init__(self, graph, db: AsyncSession, rag=None, user_id: int | None = None):
         self.graph = graph
         self.db = db
         self.rag = rag
+        self.user_id = user_id
 
     def _embedding_model_name(self) -> str | None:
         try:
@@ -178,7 +179,7 @@ class ChatService:
         return self._fallback_title(query, max_length)
 
     async def _get_conversation(self, conversation_id: int) -> dict | None:
-        conv = await ConversationRepository(self.db).get_by_id(conversation_id)
+        conv = await ConversationRepository(self.db, user_id=self.user_id).get_by_id(conversation_id)
         return {"id": conv.id, "title": conv.title} if conv else None
 
     async def _get_message_history(self, conversation_id: int) -> list[dict]:
@@ -200,13 +201,13 @@ class ChatService:
         return await MessageRepository(self.db).delete_after_id(conversation_id, after_id)
 
     async def _set_title(self, conversation_id: int, title: str):
-        return await ConversationRepository(self.db).update_title(conversation_id, title)
+        return await ConversationRepository(self.db, user_id=self.user_id).update_title(conversation_id, title)
 
     async def _attach_document_names(self, sources: list[dict]) -> list[dict]:
         doc_ids = {s.get("document_id") for s in sources if s.get("document_id")}
         names: dict[str, str] = {}
         if doc_ids:
-            all_docs = {str(doc.id): doc.name for doc in await DocumentRepository(self.db).list_all()}
+            all_docs = {str(doc.id): doc.name for doc in await DocumentRepository(self.db, user_id=self.user_id).list_all()}
             names = {key: value for key, value in all_docs.items() if key in doc_ids}
 
         enriched = []

@@ -3,7 +3,9 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.backend.auth.dependencies import get_current_user
 from app.backend.database.database import get_db
+from app.backend.database.models import User
 from app.backend.database.repositories import ConversationRepository, MessageRepository
 from app.backend.schemas.chat import ChatRequest, RegenerateRequest
 from app.backend.schemas.conversation import (
@@ -24,12 +26,14 @@ def get_checkpointer(request: Request):
 
 async def get_chat_service(
     request: Request,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ChatService:
     return ChatService(
         graph=request.app.state.graph,
         db=db,
         rag=request.app.state.rag,
+        user_id=user.id,
     )
 
 
@@ -57,9 +61,10 @@ async def regenerate_response(
 
 @router.post("/conversations", response_model=ConversationResponse)
 async def create_conversation(
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    repo = ConversationRepository(db)
+    repo = ConversationRepository(db, user_id=user.id)
 
     conversation = await repo.create()
 
@@ -77,9 +82,10 @@ class RenameRequest(BaseModel):
 async def rename_conversation(
     conversation_id: int,
     body: RenameRequest,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    repo = ConversationRepository(db)
+    repo = ConversationRepository(db, user_id=user.id)
     conversation = await repo.update_title(conversation_id, body.title.strip())
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
@@ -89,10 +95,11 @@ async def rename_conversation(
 @router.delete("/{conversation_id}")
 async def delete_conversation(
     conversation_id: int,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     checkpointer=Depends(get_checkpointer),
 ):
-    repo = ConversationRepository(db)
+    repo = ConversationRepository(db, user_id=user.id)
 
     conversation = await repo.get_by_id(conversation_id)
 
@@ -112,9 +119,10 @@ async def delete_conversation(
 @router.get("/list", response_model=list[ConversationResponse])
 async def list_conversations(
     q: str | None = Query(default=None, max_length=200),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    repo = ConversationRepository(db)
+    repo = ConversationRepository(db, user_id=user.id)
     if q and q.strip():
         return await repo.search(q.strip())
     return await repo.list_all()

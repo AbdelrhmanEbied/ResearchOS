@@ -10,7 +10,9 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.backend.auth.dependencies import get_current_user
 from app.backend.database.database import get_db
+from app.backend.database.models import User
 from app.backend.database.repositories import DocumentRepository
 from app.backend.schemas.document import DocumentDetailResponse, DocumentResponse
 from app.backend.services.document_service import DocumentService
@@ -23,11 +25,13 @@ router = APIRouter(
 
 async def get_document_service(
     request: Request,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return DocumentService(
         rag=request.app.state.rag,
         db=db,
+        user_id=user.id,
     )
 
 

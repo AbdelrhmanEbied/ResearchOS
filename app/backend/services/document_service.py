@@ -21,12 +21,11 @@ UPLOAD_DIR = data_path("data/uploads")
 
 
 class DocumentService:
-    def __init__(self, rag, db: AsyncSession, user_id: int | None = None):
+    def __init__(self, rag, db: AsyncSession):
         self.rag = rag
         self.db = db
-        self.user_id = user_id
-        self.document_repo = DocumentRepository(db, user_id=user_id)
-        self.conversation_repo = ConversationRepository(db, user_id=user_id)
+        self.document_repo = DocumentRepository(db)
+        self.conversation_repo = ConversationRepository(db)
 
     def _embedding_model_name(self) -> str | None:
         try:

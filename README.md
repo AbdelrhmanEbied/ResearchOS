@@ -6,9 +6,9 @@ A local-first AI research assistant with a clean web UI for chatting with LLMs, 
 
 ## Demo
 
-<video src="https://github.com/AbdelrhmanEbied/ResearchOS/releases/download/demo-video/Demo_video_readme_720p.mp4" width="720" controls muted></video>
+https://github.com/user-attachments/assets/4f7ed287-b0e9-4760-a2c7-84ef06af9486
 
-> Covers chat with Instant / Thinking effort, the live agent execution panel, and the analytics dashboard. If the player doesn't load, [download the video](https://github.com/AbdelrhmanEbied/ResearchOS/releases/download/demo-video/Demo_video_readme_720p.mp4) directly.
+> Covers chat with Instant / Thinking effort, the live agent execution panel, and the analytics dashboard. If the player doesn't load, [download the video](https://github.com/user-attachments/assets/4f7ed287-b0e9-4760-a2c7-84ef06af9486) directly.
 
 ## What it does
 

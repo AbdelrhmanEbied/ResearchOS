@@ -8,6 +8,7 @@ export const hasMarked = typeof marked !== 'undefined';
 export const hasPurify = typeof DOMPurify !== 'undefined';
 export const hasKatex = typeof renderMathInElement !== 'undefined';
 export const hasCharts = typeof Chart !== 'undefined';
+export const hasHljs = typeof hljs !== 'undefined';
 
 // backend appends these terminators followed by JSON payloads (the citation
 // list, the response details, or a generation error), which the streaming
@@ -18,6 +19,10 @@ export const ERROR_MARKER = '@@RESEARCH_ERROR@@';
 // thinking-mode segments are terminated with this marker; everything before
 // the last marker is thinking, everything after it is the final answer
 export const THINKING_MARKER = '@@RESEARCH_THINKING@@';
+// live agent execution events: one frame of `EVENT_MARKER` + newline + a
+// single-line JSON object + newline. frames are stripped from the visible
+// text and rendered by js/agentstream.js instead
+export const EVENT_MARKER = '@@RESEARCH_EVENT@@';
 
 // icons built in JS, the rest are inline in the markup
 export const ICON_X = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';

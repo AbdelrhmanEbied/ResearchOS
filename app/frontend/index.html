@@ -106,7 +106,25 @@
       </div>
       <button class="model-save" id="setLlmSave">Save model</button>
 
-      <div class="sec-title" style="padding-top:18px">Retrieval defaults</div>
+      <div class="sec-title" style="padding-top:18px">Web search</div>
+      <div class="model-field">
+        <label for="setResultsPerPage">Results per query (1–10)</label>
+        <input type="number" id="setResultsPerPage" min="1" max="10" step="1">
+      </div>
+      <div class="model-field" style="margin-top:8px">
+        <label for="setPagesFetched">Pages fetched per task (1–10)</label>
+        <input type="number" id="setPagesFetched" min="1" max="10" step="1">
+      </div>
+      <div class="model-field" style="margin-top:8px">
+        <label for="setSearchDepth">Search depth</label>
+        <select id="setSearchDepth">
+          <option value="basic">Basic</option>
+          <option value="advanced">Advanced</option>
+        </select>
+      </div>
+      <button class="model-save" id="setWebSave">Save web search</button>
+
+      <div class="sec-title" style="padding-top:18px">RAG / retrieval</div>
       <div class="model-field">
         <label for="setSearchType">Search type</label>
         <select id="setSearchType">
@@ -116,15 +134,12 @@
         </select>
       </div>
       <div class="model-field" style="margin-top:8px">
-        <label for="setSearchDepth">Web search depth</label>
-        <select id="setSearchDepth">
-          <option value="basic">Basic</option>
-          <option value="advanced">Advanced</option>
-        </select>
+        <label for="setRetrieveLimit">Chunks per retrieval (1–50)</label>
+        <input type="number" id="setRetrieveLimit" min="1" max="50" step="1">
       </div>
       <div class="model-field" style="margin-top:8px">
-        <label for="setRetrieveLimit">Retrieval limit (1–50)</label>
-        <input type="number" id="setRetrieveLimit" min="1" max="50" step="1">
+        <label for="setRerankTopK">Rerank top-k (1–50)</label>
+        <input type="number" id="setRerankTopK" min="1" max="50" step="1">
       </div>
       <div class="settings-row">
         <input type="checkbox" id="setRerank">
@@ -132,23 +147,25 @@
       </div>
       <button class="model-save" id="setRetrievalSave">Save retrieval</button>
 
-      <div class="settings-status" id="settingsStatus"></div>
-    </div>
-  </div>
-</div>
+      <div class="sec-title" style="padding-top:18px">Agent</div>
+      <div class="model-field">
+        <label for="setRecursionLimit">Recursion limit (25–500)</label>
+        <input type="number" id="setRecursionLimit" min="25" max="500" step="1">
+      </div>
+      <div class="model-field" style="margin-top:8px">
+        <label for="setIterations">Max research iterations (1–6)</label>
+        <input type="number" id="setIterations" min="1" max="6" step="1">
+      </div>
+      <div class="model-field" style="margin-top:8px">
+        <label for="setEffort">Default response effort</label>
+        <select id="setEffort">
+          <option value="instant">Instant — answers fast, uses tools when needed</option>
+          <option value="thinking">Thinking — full research pipeline</option>
+        </select>
+      </div>
+      <button class="model-save" id="setAgentSave">Save agent</button>
 
-<div class="modal-backdrop" id="compareModal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="compareModalTitle">
-    <div class="modal-header">
-      <h2 id="compareModalTitle">Compare documents</h2>
-      <button class="icon-btn" id="compareModalClose" aria-label="Close">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <div class="compare-select" id="compareSelect"></div>
-      <textarea class="compare-note" id="compareNote" rows="2" placeholder="What would you like to compare about these documents? (optional)"></textarea>
-      <button class="compare-go" id="compareGo">Compare selected</button>
+      <div class="settings-status" id="settingsStatus"></div>
     </div>
   </div>
 </div>
@@ -188,52 +205,32 @@
     </div>
   </div>
   <div class="composer-wrap">
-    <div class="composer-tools">
-      <select class="mode-select" id="sourceSelect" title="Knowledge source" aria-label="Knowledge source">
-        <option value="auto">Auto</option>
-        <option value="documents">Documents</option>
-        <option value="web">Web</option>
-        <option value="chat">Chat only</option>
-      </select>
-      <button class="advanced-btn" id="advancedBtn" type="button">Retrieval</button>
-      <button class="advanced-btn" id="compareBtn" type="button">Compare docs</button>
-      <div class="mode-toggle" role="group" aria-label="Response mode">
-        <button type="button" class="mode-toggle-btn active" data-mode="fast">Fast</button>
-        <button type="button" class="mode-toggle-btn" data-mode="thinking">Thinking</button>
-      </div>
-    </div>
-    <div class="advanced-popover" id="advancedPopover" hidden>
-      <div class="model-field">
-        <label for="reqSearchType">Search type</label>
-        <select id="reqSearchType">
-          <option value="">Default</option>
-          <option value="hybrid">Hybrid</option>
-          <option value="dense">Dense</option>
-          <option value="sparse">Sparse</option>
-        </select>
-      </div>
-      <div class="model-field">
-        <label for="reqSearchDepth">Web depth</label>
-        <select id="reqSearchDepth" title="Web search depth used by the web search provider">
-          <option value="">Default</option>
-          <option value="basic">Basic</option>
-          <option value="advanced">Advanced</option>
-        </select>
-      </div>
-      <div class="model-field">
-        <label for="reqRetrieveLimit">Limit (1–50)</label>
-        <input type="number" id="reqRetrieveLimit" min="1" max="50" step="1" placeholder="Default">
-      </div>
-      <label class="adv-check">
-        <input type="checkbox" id="reqRerank"> Rerank
-      </label>
-    </div>
     <div class="composer">
       <button class="icon-btn" id="attachBtn" title="Attach document" aria-label="Attach document">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </button>
       <input type="file" id="fileInput" hidden>
       <textarea id="input" rows="1" placeholder="How can I help you today?"></textarea>
+      <!-- response effort: a small collapsible menu next to the send button.
+           Instant = tools when needed, no analysis/verification pass;
+           Thinking = the full research pipeline (still routed, so a greeting
+           never triggers research) -->
+      <div class="mode-menu" id="modeMenu">
+        <button type="button" class="mode-menu-btn" id="modeMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Response mode">
+          <span class="mode-menu-label" id="modeMenuLabel">Instant</span>
+          <span class="mode-menu-chev" aria-hidden="true">&#8250;</span>
+        </button>
+        <div class="mode-menu-pop" id="modeMenuPop" role="menu" hidden>
+          <button type="button" class="mode-menu-item active" role="menuitemradio" aria-checked="true" data-mode="instant">
+            <span class="mode-menu-name">Instant</span>
+            <span class="mode-menu-hint">Answers fast, uses tools when needed</span>
+          </button>
+          <button type="button" class="mode-menu-item" role="menuitemradio" aria-checked="false" data-mode="thinking">
+            <span class="mode-menu-name">Thinking</span>
+            <span class="mode-menu-hint">Full research: analysis, verification, review</span>
+          </button>
+        </div>
+      </div>
       <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message" disabled>
         <svg class="ico send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
         <svg class="ico stop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
@@ -250,6 +247,7 @@
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>

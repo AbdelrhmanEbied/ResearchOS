@@ -1,5 +1,5 @@
 import { dom, state, EMPTY_STATE_HTML } from './state.js';
-import { escapeHtml, fmtMs, fmtNum, hasGSAP, reduceMotion, SOURCES_MARKER, DETAILS_MARKER, ERROR_MARKER, THINKING_MARKER } from './utils.js';
+import { escapeHtml, fmtMs, fmtNum, hasGSAP, reduceMotion, SOURCES_MARKER, DETAILS_MARKER, ERROR_MARKER, THINKING_MARKER, EVENT_MARKER } from './utils.js';
 import { setContent, typesetMath } from './markdown.js';
 import { initHeroAnimation, stopHeroBeatLoop } from './motion.js';
 
@@ -16,16 +16,45 @@ function splitThinking(text) {
   };
 }
 
+// pulls the agent execution frames out of the raw stream. the tail frame may
+// still be mid-transmission, so anything after an unterminated marker stays
+// out of the visible text until its newline arrives
+export function extractEvents(raw) {
+  const events = [];
+  let text = '';
+  let cursor = 0;
+  while (true) {
+    const idx = raw.indexOf(EVENT_MARKER, cursor);
+    if (idx === -1) {
+      text += raw.slice(cursor);
+      break;
+    }
+    text += raw.slice(cursor, idx);
+    let start = idx + EVENT_MARKER.length;
+    if (raw[start] === '\n') start += 1;
+    const nl = raw.indexOf('\n', start);
+    if (nl === -1) break;
+    const payload = raw.slice(start, nl);
+    if (payload) {
+      try { events.push(JSON.parse(payload)); } catch (_) {}
+    }
+    cursor = nl + 1;
+  }
+  return { text, events };
+}
+
 export function parseTail(raw) {
-  let text = raw;
+  const extracted = extractEvents(raw);
+  const events = extracted.events;
+  let text = extracted.text;
   let sources = null;
   let details = null;
   let error = null;
 
-  const errIdx = raw.lastIndexOf(ERROR_MARKER);
+  const errIdx = text.lastIndexOf(ERROR_MARKER);
   if (errIdx !== -1) {
-    text = raw.slice(0, errIdx);
-    try { error = JSON.parse(raw.slice(errIdx + ERROR_MARKER.length).trim()); } catch (_) {}
+    text = text.slice(0, errIdx);
+    try { error = JSON.parse(extracted.text.slice(errIdx + ERROR_MARKER.length).trim()); } catch (_) {}
     const split = splitThinking(text);
     return {
       text: split.text.replace(/[\s\n]+$/, ''),
@@ -33,13 +62,14 @@ export function parseTail(raw) {
       sources: null,
       details: null,
       error: (error && typeof error === 'object') ? error : null,
+      events,
     };
   }
 
   const detIdx = text.lastIndexOf(DETAILS_MARKER);
   if (detIdx !== -1) {
     text = text.slice(0, detIdx);
-    try { details = JSON.parse(raw.slice(detIdx + DETAILS_MARKER.length).trim()); } catch (_) {}
+    try { details = JSON.parse(extracted.text.slice(detIdx + DETAILS_MARKER.length).trim()); } catch (_) {}
   }
   const srcIdx = text.lastIndexOf(SOURCES_MARKER);
   if (srcIdx !== -1) {
@@ -55,6 +85,7 @@ export function parseTail(raw) {
     sources: Array.isArray(sources) ? sources : null,
     details: (details && typeof details === 'object') ? details : null,
     error: null,
+    events,
   };
 }
 
@@ -199,16 +230,17 @@ export function createThinkingPanel(row) {
   if (panel) return panel;
 
   panel = document.createElement('div');
-  panel.className = 'thinking-panel open';
+  panel.className = 'thinking-panel';
 
   const head = document.createElement('button');
   head.className = 'thinking-head';
   head.type = 'button';
-  head.setAttribute('aria-expanded', 'true');
+  head.setAttribute('aria-expanded', 'false');
   head.innerHTML = '<span class="thinking-spark" aria-hidden="true"></span><span class="thinking-label">Thinking</span><span class="thinking-chev" aria-hidden="true">›</span>';
 
   const body = document.createElement('div');
   body.className = 'thinking-body';
+  body.hidden = true;
   body.textContent = 'Thinking…';
 
   head.addEventListener('click', () => {

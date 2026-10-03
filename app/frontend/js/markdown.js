@@ -1,4 +1,4 @@
-import { escapeHtml, hasMarked, hasPurify, hasKatex } from './utils.js';
+import { escapeHtml, hasMarked, hasPurify, hasKatex, hasHljs } from './utils.js';
 
 if (hasMarked) marked.setOptions({ breaks: true, gfm: true });
 
@@ -8,7 +8,10 @@ function renderMarkdownBasic(raw) {
   let html = '';
   for (let i = 0; i < parts.length; i++) {
     if (i % 2 === 1) {
-      html += `<pre><code>${escapeHtml(parts[i].replace(/^\w*\n/, ''))}</code></pre>`;
+      // keep a ```lang header so highlight.js can colour the block
+      const m = parts[i].match(/^(\w+)\n([\s\S]*)$/);
+      const lang = m ? escapeHtml(m[1]) : '';
+      html += `<pre><code${lang ? ` class="language-${lang}"` : ''}>${escapeHtml(m ? m[2] : parts[i])}</code></pre>`;
       continue;
     }
     const escaped = escapeHtml(parts[i]);
@@ -87,9 +90,30 @@ export function typesetMath(el) {
   } catch (_) { /* a bad expression shouldn't take out the whole message */ }
 }
 
+// syntax highlighting for fenced code blocks. runs once on the finished
+// message — the streaming typewriter repaints the whole bubble every frame,
+// which would re-tokenise the code over and over
+export function highlightCode(el) {
+  if (!hasHljs || !el || !el.querySelectorAll) return;
+  el.querySelectorAll('pre code').forEach((block) => {
+    if (block.classList.contains('hljs')) return;
+    const cls = [...block.classList].find((c) => c.startsWith('language-'));
+    const name = cls ? cls.slice('language-'.length) : '';
+    // only when the fence declared a language we actually ship; guessing one
+    // for unlabeled code colours keywords in prose
+    if (!name || !hljs.getLanguage(name)) return;
+    try {
+      hljs.highlightElement(block);
+    } catch (_) {
+      /* a grammar edge case must not break the message */
+    }
+  });
+}
+
 // math: false while streaming. half-finished expressions are wrong to
 // typeset and it's wasted work on every frame anyway
-export function setContent(el, raw, { math = true } = {}) {
+export function setContent(el, raw, { math = true, code = math } = {}) {
   el.innerHTML = renderRich(raw);
   if (math) typesetMath(el);
+  if (code) highlightCode(el);
 }

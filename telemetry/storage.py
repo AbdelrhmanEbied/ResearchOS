@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = "telemetry.db"
 
+TAG_DIMENSIONS = ("effort", "intent", "source", "mode", "error_type")
+
 
 def _naive_utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
@@ -102,6 +104,8 @@ class TelemetryStore:
                     StoredEvent.duration_ms,
                     StoredEvent.started_at,
                     StoredEvent.metrics,
+                    StoredEvent.tags,
+                    StoredEvent.spans,
                 )
             ).all()
 
@@ -116,6 +120,8 @@ class TelemetryStore:
                 "metric_averages": {},
                 "routes": {},
                 "timeline": [],
+                "tags": {},
+                "spans": {},
             }
 
         success_count = sum(1 for row in rows if row.success)
@@ -179,6 +185,34 @@ class TelemetryStore:
                 }
             )
 
+        tag_counts: dict[str, dict[str, int]] = {}
+        for row in rows:
+            row_tags = row.tags or {}
+            for key in TAG_DIMENSIONS:
+                value = row_tags.get(key)
+                if value in (None, ""):
+                    continue
+                bucket = tag_counts.setdefault(key, {})
+                bucket[str(value)] = bucket.get(str(value), 0) + 1
+
+        span_buckets: dict[tuple[str, str], dict[str, float]] = {}
+        for row in rows:
+            for span in row.spans or []:
+                name = span.get("name")
+                kind = span.get("span_type") or "UNKNOWN"
+                if not name:
+                    continue
+                bucket = span_buckets.setdefault((kind, str(name)), {"count": 0.0, "ms": 0.0})
+                bucket["count"] += 1
+                bucket["ms"] += float(span.get("duration_ms") or 0.0)
+        span_totals: dict[str, dict[str, dict[str, Any]]] = {}
+        for (kind, name), bucket in span_buckets.items():
+            count = int(bucket["count"])
+            span_totals.setdefault(kind, {})[name] = {
+                "count": count,
+                "avg_ms": round(bucket["ms"] / count, 2) if count else 0.0,
+            }
+
         return {
             "total": total,
             "success": success_count,
@@ -188,6 +222,8 @@ class TelemetryStore:
             "metric_averages": metric_averages,
             "routes": routes,
             "timeline": timeline,
+            "tags": tag_counts,
+            "spans": span_totals,
         }
 
     def clear(self) -> int:

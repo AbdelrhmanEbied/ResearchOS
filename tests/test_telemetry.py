@@ -358,3 +358,130 @@ def test_telemetry_endpoints(store):
         assert response.status_code == 200
         assert response.json()["deleted"] == 1
         assert store.list_events() == []
+
+
+def test_agent_run_recorder_flattens_stream_events(store, file_config):
+    from app.backend.services.agent_telemetry import AgentRunRecorder
+
+    tracker = TelemetryTracker(route="/chat/", config=file_config, store=store)
+    recorder = AgentRunRecorder(tracker)
+
+    recorder.handle({"type": "agent_started", "id": "root"})
+    recorder.handle({"type": "tool_started", "id": "t1", "name": "web_search"})
+    recorder.handle(
+        {"type": "tool_finished", "id": "t1", "name": "web_search", "ok": True, "duration_ms": 120.5}
+    )
+    recorder.handle({"type": "tool_started", "id": "t2", "name": "retrieve_documents"})
+    recorder.handle(
+        {
+            "type": "tool_finished",
+            "id": "t2",
+            "name": "retrieve_documents",
+            "ok": False,
+            "duration_ms": 30.0,
+        }
+    )
+    recorder.handle(
+        {"type": "subgraph_finished", "id": "s1", "label": "Web Search", "duration_ms": 500.0}
+    )
+    recorder.handle({"type": "subgraph_finished", "id": "s2", "label": "Quality Review", "duration_ms": 100.0})
+    recorder.handle({"type": "subgraph_finished", "id": "s3", "label": "Quality Review", "duration_ms": 150.0})
+    recorder.handle(
+        {
+            "type": "agent_status",
+            "node": "route_intent",
+            "status": "done",
+            "label": "Deciding what's needed",
+            "duration_ms": 40.0,
+        }
+    )
+    recorder.handle(
+        {"type": "agent_status", "node": "replan", "status": "done", "label": "Replan", "duration_ms": 10.0}
+    )
+    recorder.handle({"type": "error", "message": "boom"})
+    recorder.handle({"type": "message_delta", "text": "ignored"})
+
+    recorder.finish(
+        intent="research",
+        allowed_tools=["web", "document"],
+        sources=[{"source": "web"}],
+        answer="hello",
+        usage={"input_tokens": 7, "output_tokens": 3, "total_tokens": 10},
+    )
+    tracker.finish(success=True)
+
+    [event] = store.list_events()
+    metrics = event["metrics"]
+    tags = event["tags"]
+    spans = {(s["name"], s["span_type"]) for s in event["spans"]}
+
+    assert metrics["tool_calls"] == 2
+    assert metrics["tool_failures"] == 1
+    assert metrics["tool_ms"] == pytest.approx(150.5)
+    assert metrics["tool_calls_web_search"] == 1
+    assert metrics["tool_calls_retrieve_documents"] == 1
+    assert metrics["stage_runs"] == 3
+    assert metrics["stage_ms_web_search"] == pytest.approx(500.0)
+    assert metrics["stage_ms_quality_review"] == pytest.approx(250.0)
+    assert metrics["node_ms_route_intent"] == pytest.approx(40.0)
+    assert metrics["replans"] == 1
+    assert metrics["quality_revisions"] == 1
+    assert metrics["agent_errors"] == 1
+    assert metrics["sources_count"] == 1
+    assert metrics["answer_chars"] == 5
+    assert metrics["input_tokens"] == 7
+    assert metrics["total_tokens"] == 10
+
+    assert tags["intent"] == "research"
+    assert tags["tools_allowed"] == "web,document"
+
+    assert ("web_search", "TOOL") in spans
+    assert ("retrieve_documents", "TOOL") in spans
+    assert ("Web Search", "STAGE") in spans
+    assert ("Quality Review", "STAGE") in spans
+    assert ("Deciding what's needed", "NODE") in spans
+
+
+def test_summary_splits_tags_and_spans(store):
+    base = {
+        "request_id": "req",
+        "conversation_id": "1",
+        "model": "m",
+        "embedding_model": None,
+        "error_type": None,
+        "environment": "test",
+        "app_version": "0.0.1",
+        "success": True,
+        "finished_at": None,
+        "started_at": datetime.now(),
+        "duration_ms": 100.0,
+        "metrics": {},
+    }
+    store.insert_event(
+        {
+            **base,
+            "route": "/chat/",
+            "tags": {"effort": "instant", "intent": "quick"},
+            "spans": [{"name": "Planning", "span_type": "NODE", "duration_ms": 20.0}],
+        }
+    )
+    store.insert_event(
+        {
+            **base,
+            "route": "/chat/",
+            "tags": {"effort": "thinking", "intent": "research"},
+            "spans": [
+                {"name": "web_search", "span_type": "TOOL", "duration_ms": 100.0},
+                {"name": "web_search", "span_type": "TOOL", "duration_ms": 300.0},
+                {"name": "Web Search", "span_type": "STAGE", "duration_ms": 400.0},
+            ],
+        }
+    )
+
+    summary = store.summary()
+
+    assert summary["tags"]["effort"] == {"instant": 1, "thinking": 1}
+    assert summary["tags"]["intent"] == {"quick": 1, "research": 1}
+    assert summary["spans"]["TOOL"]["web_search"] == {"count": 2, "avg_ms": 200.0}
+    assert summary["spans"]["STAGE"]["Web Search"] == {"count": 1, "avg_ms": 400.0}
+    assert summary["spans"]["NODE"]["Planning"] == {"count": 1, "avg_ms": 20.0}

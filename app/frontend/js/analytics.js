@@ -1,6 +1,19 @@
-import { api, showToast, escapeHtml, fmtMs, fmtNum, fmtClock, hasCharts } from './utils.js';
+import { api, showToast, escapeHtml, fmtMs, fmtNum, fmtClock, hasCharts, reduceMotion } from './utils.js';
+import { closeModal, countUp, growBars, openModal, staggerIn } from './motion.js';
 
-if (hasCharts) Chart.defaults.font.family = "'Inter', sans-serif";
+if (hasCharts) {
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  if (reduceMotion) {
+    Chart.defaults.animation = false;
+  } else {
+    // points/bars/slices build in one after another on first draw only;
+    // hover and resize updates stay instant
+    Chart.defaults.animation.duration = 900;
+    Chart.defaults.animation.easing = 'easeOutQuart';
+    Chart.defaults.animation.delay = (ctx) =>
+      ctx.type === 'data' && ctx.mode === 'default' ? ctx.dataIndex * 35 + ctx.datasetIndex * 120 : 0;
+  }
+}
 
 const telemetryModal = document.getElementById('telemetryModal');
 const telemetryBody = document.getElementById('telemetryBody');
@@ -13,11 +26,11 @@ const analyticsBtn = document.getElementById('analyticsBtn');
 let currentTelemetryEvent = null;
 
 export function openTelemetryModal() {
-  telemetryModal.hidden = false;
+  openModal(telemetryModal);
   currentTelemetryEvent = null;
   loadTelemetry();
 }
-export function closeTelemetryModal() { telemetryModal.hidden = true; currentTelemetryEvent = null; }
+export function closeTelemetryModal() { closeModal(telemetryModal); currentTelemetryEvent = null; }
 
 let activeCharts = [];
 
@@ -205,6 +218,7 @@ function toolCountOf(event) {
 
 async function loadTelemetry() {
   telemetryStatus.textContent = 'Loading…';
+  telemetryRefresh.classList.add('spinning');
   try {
     const [summaryRes, eventsRes] = await Promise.all([
       api('/telemetry/summary'),
@@ -217,6 +231,8 @@ async function loadTelemetry() {
   } catch (err) {
     telemetryStatus.textContent = 'Failed to load';
     telemetryBody.innerHTML = `<div class="dash-empty">Could not load analytics: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    telemetryRefresh.classList.remove('spinning');
   }
 }
 
@@ -366,6 +382,10 @@ function renderTelemetry(summary, events) {
     }
   }
 
+  staggerIn(telemetryBody.querySelectorAll('.stat-card, .chart-card, .sec-title, .route-row, .kv-row, .dash-table tbody tr'), { amount: 0.6 });
+  countUp(telemetryBody.querySelectorAll('.stat-value'));
+  growBars(telemetryBody.querySelectorAll('.bar-fill'));
+
   telemetryBody.querySelectorAll('tr[data-id]').forEach(row => {
     row.addEventListener('click', async () => {
       try {
@@ -420,6 +440,8 @@ function renderTelemetryDetail(event, summary, events) {
     ${spanBlock('AGENT', 'Whole run')}
     ${metricRows ? `<div class="sec-title">Metrics</div>${metricRows}` : ''}
     ${tagRows ? `<div class="sec-title">Tags</div>${tagRows}` : ''}`;
+
+  staggerIn(telemetryBody.querySelectorAll('.sec-title, .kv-row, .span-row'), { amount: 0.4 });
 
   telemetryBody.querySelector('#telemetryBack').addEventListener('click', () => {
     currentTelemetryEvent = null;

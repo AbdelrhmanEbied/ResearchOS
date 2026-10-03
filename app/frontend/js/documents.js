@@ -3,6 +3,7 @@ import { api, showToast, escapeHtml, ICON_FILE, ICON_SUMMARIZE, ICON_X } from '.
 import { addSystemNote } from './render.js';
 import { ensureConversation } from './conversations.js';
 import { sendMessage, autoResize, updateSendState } from './chat.js';
+import { closeModal, collapseOut, openModal, staggerIn } from './motion.js';
 
 const docsBtn = document.getElementById('docsBtn');
 const docsModal = document.getElementById('docsModal');
@@ -51,6 +52,7 @@ async function renderAllDocuments() {
     row.querySelector('.modal-actions .del-btn').addEventListener('click', async () => {
       try {
         await api(`/documents/${doc.id}`, { method: 'DELETE' });
+        await collapseOut(row);
         row.remove();
         if (!docsModalBody.querySelector('.doc-row')) {
           docsModalBody.innerHTML = '<div class="modal-empty">No documents uploaded yet.</div>';
@@ -63,14 +65,15 @@ async function renderAllDocuments() {
     row.querySelector('.modal-actions button:not(.del-btn)').addEventListener('click', () => summarizeDocument(doc));
     docsModalBody.appendChild(row);
   }
+  staggerIn(docsModalBody.querySelectorAll('.doc-row'));
 }
 
 function openDocsModal() {
-  docsModal.hidden = false;
+  openModal(docsModal);
   renderAllDocuments();
 }
 
-export function closeDocsModal() { docsModal.hidden = true; }
+export function closeDocsModal() { closeModal(docsModal); }
 
 async function summarizeDocument(doc) {
   const conversationId = await ensureConversation();
@@ -100,6 +103,8 @@ export async function uploadDocument(file) {
   formData.append('conversation_id', conversationId);
   formData.append('file', file);
 
+  // pulses the paperclip until indexing finishes, which can take a while
+  attachBtn.classList.add('uploading');
   try {
     await api('/documents/upload', { method: 'POST', body: formData });
     addSystemNote(`Uploaded and indexed "${file.name}"`);
@@ -107,6 +112,8 @@ export async function uploadDocument(file) {
   } catch (err) {
     addSystemNote(`Failed to upload "${file.name}": ${err.message}`);
     showToast('Upload failed');
+  } finally {
+    attachBtn.classList.remove('uploading');
   }
 }
 

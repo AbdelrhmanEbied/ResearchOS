@@ -1,17 +1,31 @@
 import { dom, state } from './state.js';
 import { api, ICON_X, showToast } from './utils.js';
 import { createMessageRow, addRow, attachMessageExtras, clearMessages, showEmptyState } from './render.js';
+import { collapseOut, enterListItems, fadeView, staggerIn, swapText, syncConvIndicator } from './motion.js';
+
+function setHeaderText(text) {
+  if (dom.mainHeader.textContent === text) return;
+  dom.mainHeader.textContent = text;
+  swapText(dom.mainHeader);
+}
 
 function updateHeader() {
   if (state.currentConversationId === null) {
-    dom.mainHeader.textContent = 'New chat';
+    setHeaderText('New chat');
     dom.headerActions.hidden = true;
     return;
   }
   const conv = state.conversationsCache.find(c => c.id === state.currentConversationId);
-  dom.mainHeader.textContent = (conv && conv.title) || 'New chat';
-  dom.headerActions.hidden = false;
+  setHeaderText((conv && conv.title) || 'New chat');
+  if (dom.headerActions.hidden) {
+    dom.headerActions.hidden = false;
+    staggerIn(dom.headerActions.children, { y: -6 });
+  }
 }
+
+// ids from the previous render, so only chats that weren't there before
+// animate in. null until the first load, which staggers the whole list
+let renderedConvIds = null;
 
 // TODO: this refetches the whole list after every send, fine for now but
 // it'll need paginating once there are a few hundred chats
@@ -21,6 +35,7 @@ export async function loadConversations() {
   state.conversationsCache = await res.json();
 
   dom.convList.innerHTML = '';
+  const fresh = [];
   if (state.conversationsCache.length === 0) {
     dom.convList.innerHTML = '<div class="conv-empty">No chats found</div>';
   }
@@ -46,7 +61,14 @@ export async function loadConversations() {
     delBtn.innerHTML = ICON_X;
     delBtn.title = 'Delete conversation';
     delBtn.setAttribute('aria-label', `Delete "${conv.title || 'New chat'}"`);
-    delBtn.onclick = (e) => { e.stopPropagation(); deleteConversation(conv.id); };
+    delBtn.onclick = async (e) => {
+      e.stopPropagation();
+      await collapseOut(item);
+      deleteConversation(conv.id).catch(() => {
+        showToast('Failed to delete conversation');
+        loadConversations();
+      });
+    };
     item.appendChild(delBtn);
 
     item.onclick = () => selectConversation(conv.id);
@@ -54,7 +76,12 @@ export async function loadConversations() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectConversation(conv.id); }
     };
     dom.convList.appendChild(item);
+    if (!renderedConvIds || !renderedConvIds.has(conv.id)) fresh.push(item);
   }
+  // first load waits for the intro to get the sidebar on screen
+  enterListItems(fresh, renderedConvIds ? 0 : 0.35);
+  renderedConvIds = new Set(state.conversationsCache.map(c => c.id));
+  syncConvIndicator(dom.convList);
   updateHeader();
 }
 
@@ -104,12 +131,14 @@ export async function selectConversation(id) {
   else {
     // newest-first page; walk backwards so the oldest renders first
     for (let i = messages.length - 1; i >= 0; i--) {
-      const contentEl = addRow(messages[i].role, messages[i].content);
+      const contentEl = addRow(messages[i].role, messages[i].content, { animate: false });
       if (messages[i].role === 'assistant') {
         attachMessageExtras(contentEl, messages[i].extra, { last: i === 0 });
       }
     }
     if (state.messagesPage.loaded < state.messagesPage.total) addLoadEarlierButton();
+    // one fade for the whole history instead of 200 rows each animating
+    fadeView(dom.messages);
   }
 }
 

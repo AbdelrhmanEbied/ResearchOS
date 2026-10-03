@@ -88,7 +88,11 @@
   body.anim-paused .particle,
   body.anim-paused .letter,
   body.anim-paused .caret,
-  body.anim-paused .typing-dots span {
+  body.anim-paused .typing-dots span,
+  body.anim-paused .composer::before,
+  body.anim-paused .agent-badge.running,
+  body.anim-paused #attachBtn.uploading,
+  body.anim-paused .icon-btn.spinning .ico {
     animation-play-state: paused !important;
   }
 
@@ -344,7 +348,7 @@
   .route-row .route-name { width: 170px; flex: none; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .route-row .route-meta { width: 190px; flex: none; color: var(--text-dim); font-variant-numeric: tabular-nums; }
   .bar-track { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-strong); overflow: hidden; }
-  .bar-fill { height: 100%; background: rgba(255,255,255,0.55); border-radius: 3px; }
+  .bar-fill { height: 100%; background: rgba(255,255,255,0.55); border-radius: 3px; transform-origin: left center; }
 
   .dash-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .dash-table th {
@@ -428,7 +432,7 @@
   }
   .hamburger { display: none; font-size: 18px; }
 
-  .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  .messages { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
 
   .empty-state {
     flex: 1;
@@ -721,7 +725,7 @@
     border-radius: 18px;
     padding: 12px 12px 12px 15px;
     background: var(--bg-raised);
-    transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+    transition: border-color 0.25s, box-shadow 0.25s;
   }
   .composer:focus-within {
     border-color: var(--border-strong);
@@ -796,12 +800,13 @@
     border-radius: 10px;
     font-size: 13px;
     opacity: 0;
-    transition: opacity 0.25s;
+    transform: translate(-50%, 14px) scale(0.96);
+    transition: opacity 0.25s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
     pointer-events: none;
     z-index: 20;
     box-shadow: 0 8px 30px rgba(0,0,0,0.5);
   }
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 
   /* --- conversation search + header actions --- */
   .conv-search {
@@ -821,6 +826,7 @@
   .conv-search::placeholder { color: var(--text-faint); }
 
   .header-actions { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+  .header-actions[hidden] { display: none; }
   .header-actions .icon-btn { font-size: 13px; color: var(--text-dim); }
   .conv-title-edit {
     flex: 0 1 auto;
@@ -1203,8 +1209,7 @@
   .source-meta { flex: none; color: var(--text-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .source-chev { flex: none; color: var(--text-faint); font-size: 12px; transition: transform 0.18s; }
   .source-item.open .source-chev { transform: rotate(90deg); }
-  .source-detail { display: none; padding: 0 12px 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
-  .source-item.open .source-detail { display: block; }
+  .source-detail { padding: 0 12px 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
   .source-detail .snip { margin-bottom: 8px; }
   .source-detail .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-faint); font-size: 11.5px; }
   .source-detail a { color: #cfcfd4; }
@@ -1213,6 +1218,125 @@
   .settings-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-dim); padding: 8px 0 2px; }
   .settings-row input[type="checkbox"] { accent-color: #ededed; width: 15px; height: 15px; }
   .settings-status { font-size: 12px; color: var(--text-faint); margin-top: 10px; line-height: 1.5; }
+
+  /* --- motion polish --- */
+
+  /* soft light under the cursor, see initSpotlight in motion.js */
+  .spotlight {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.6s;
+    background: radial-gradient(520px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.045), transparent 60%);
+  }
+  .spotlight.on { opacity: 1; }
+
+  .chip, .new-chat-btn, .docs-btn, .msg-action, .model-save,
+  .source-head, .mode-menu-item, .load-earlier {
+    position: relative;
+    overflow: hidden;
+  }
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.16);
+    transform: scale(0);
+    pointer-events: none;
+    animation: ripple 0.6s ease-out forwards;
+  }
+  @keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+  /* the pill behind the active chat, moved by syncConvIndicator */
+  .conv-list { position: relative; }
+  .conv-item { position: relative; z-index: 1; }
+  .conv-indicator {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.085);
+    box-shadow: inset 2px 0 0 rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+  .conv-list.has-indicator .conv-item.active { background: transparent; }
+  .conv-list.has-indicator .conv-item.active:hover { background: rgba(255,255,255,0.03); }
+
+  /* a light that runs round the composer border: slow while focused,
+     fast while a response is streaming in */
+  @property --ring-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+  .composer { position: relative; }
+  .composer::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(from var(--ring-angle),
+      transparent 0deg, rgba(255,255,255,0.55) 50deg, transparent 110deg,
+      transparent 180deg, rgba(255,255,255,0.2) 230deg, transparent 290deg);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.45s;
+    pointer-events: none;
+    animation: ringSpin 5s linear infinite;
+  }
+  .composer:not(:focus-within):not(.busy)::before { animation-play-state: paused; }
+  .composer:focus-within::before { opacity: 0.9; }
+  .composer.busy::before { opacity: 1; animation-duration: 1.6s; }
+  @keyframes ringSpin { to { --ring-angle: 360deg; } }
+
+  /* send <-> stop swap. display:none -> block restarts the animation, so
+     each icon pops in every time it comes back */
+  .send-btn .send-icon,
+  .send-btn.stop .stop-icon { animation: iconPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes iconPop {
+    from { transform: scale(0.3) rotate(-90deg); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+
+  .chip:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+
+  /* icon micro-interactions */
+  .new-chat-btn .ico, .docs-btn .ico, .icon-btn .ico {
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.15s;
+  }
+  .new-chat-btn:hover .ico { transform: rotate(90deg); color: var(--text); }
+  #settingsBtn:hover .ico { transform: rotate(75deg); }
+  #docsBtn:hover .ico { transform: translateY(-2px) rotate(-6deg); }
+  #analyticsBtn:hover .ico path { stroke-dasharray: 48; animation: drawLine 0.7s ease-out; }
+  @keyframes drawLine { from { stroke-dashoffset: 48; } to { stroke-dashoffset: 0; } }
+  .icon-btn[aria-label="Close"]:hover .ico { transform: rotate(90deg); }
+  #attachBtn:hover .ico { transform: rotate(-14deg) scale(1.08); }
+  .header-actions .icon-btn:hover .ico { transform: translateY(-2px); }
+  .icon-btn.spinning .ico { animation: agentSpin 0.8s linear infinite; }
+
+  #attachBtn.uploading { color: var(--text); animation: uploadPulse 1.2s ease-in-out infinite; }
+  @keyframes uploadPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+    50%      { box-shadow: 0 0 0 4px rgba(255,255,255,0.09); }
+  }
+
+  /* agent badge: a sheen while working, a pop when it lands */
+  .agent-badge.running {
+    background: linear-gradient(90deg, var(--panel) 0%, rgba(255,255,255,0.16) 50%, var(--panel) 100%);
+    background-size: 200% 100%;
+    animation: badgeSheen 1.6s linear infinite;
+  }
+  @keyframes badgeSheen { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .agent-badge.done,
+  .agent-badge.failed { animation: badgePop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes badgePop { from { transform: scale(0.6); } to { transform: scale(1); } }
+
+  /* no transform transitions on these, GSAP staggers them in by y */
+  .stat-card, .chart-card, .source-item { transition: border-color 0.2s, background 0.2s; }
+  .stat-card:hover, .chart-card:hover, .source-item:hover { border-color: var(--border-strong); }
 
   /* 44px minimum hit area on touch. keyed off pointer, not width, since a
      small window on a desktop still has a precise cursor */
@@ -1240,9 +1364,11 @@
 
   @media (prefers-reduced-motion: reduce) {
     .mesh-blob, .particle, .caret, .letter,
-    .send-btn:hover, .typing-dots span {
+    .send-btn:hover, .typing-dots span,
+    .composer::before {
       animation: none !important;
     }
+    .spotlight, .ripple { display: none; }
     /* letters are transparent + gradient-masked normally, so put the
        fill back or they vanish once the shimmer is off */
     .letter {

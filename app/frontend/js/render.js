@@ -1,7 +1,7 @@
 import { dom, state, EMPTY_STATE_HTML } from './state.js';
 import { escapeHtml, fmtMs, fmtNum, hasGSAP, reduceMotion, SOURCES_MARKER, DETAILS_MARKER, ERROR_MARKER, THINKING_MARKER, EVENT_MARKER } from './utils.js';
 import { setContent, typesetMath } from './markdown.js';
-import { initHeroAnimation, stopHeroBeatLoop } from './motion.js';
+import { collapseOut, enterRow, initHeroAnimation, revealBlock, staggerIn, stopHeroBeatLoop, toggleHeight } from './motion.js';
 
 function splitThinking(text) {
   const parts = String(text).split(THINKING_MARKER);
@@ -140,6 +140,7 @@ export function renderSources(el, sources) {
 
     const detail = document.createElement('div');
     detail.className = 'source-detail';
+    detail.hidden = true;
     if (s.snippet) {
       const snip = document.createElement('div');
       snip.className = 'snip';
@@ -181,6 +182,7 @@ export function renderSources(el, sources) {
     head.addEventListener('click', () => {
       const open = item.classList.toggle('open');
       head.setAttribute('aria-expanded', String(open));
+      toggleHeight(detail, open);
     });
     item.appendChild(head);
     item.appendChild(detail);
@@ -223,6 +225,7 @@ export function renderDetails(el, details) {
 
   panel.innerHTML = html;
   el.appendChild(panel);
+  return panel;
 }
 
 export function createThinkingPanel(row) {
@@ -245,7 +248,7 @@ export function createThinkingPanel(row) {
 
   head.addEventListener('click', () => {
     const open = panel.classList.toggle('open');
-    body.hidden = !open;
+    toggleHeight(body, open);
     head.setAttribute('aria-expanded', String(open));
   });
 
@@ -293,7 +296,8 @@ export function showEmptyState() {
 
 export function scrollToBottom() { dom.messages.scrollTop = dom.messages.scrollHeight; }
 
-export function addRow(role, text) {
+// animate: false for history loads, which fade in as one block instead
+export function addRow(role, text, { animate = true } = {}) {
   const emptyState = dom.messages.querySelector('.empty-state');
   if (emptyState) { emptyState.remove(); stopHeroBeatLoop(); }
 
@@ -303,7 +307,7 @@ export function addRow(role, text) {
   // let gsap do it instead of the css fadein when it's around
   if (hasGSAP && !reduceMotion) {
     row.style.animation = 'none';
-    gsap.from(row, { opacity: 0, y: 22, scale: 0.97, duration: 0.5, ease: 'back.out(1.5)' });
+    if (animate) enterRow(row, role);
   }
 
   scrollToBottom();
@@ -391,6 +395,7 @@ export function addSystemNote(text) {
   note.className = 'system-note';
   note.textContent = text;
   dom.messages.appendChild(note);
+  staggerIn([note], { y: 8 });
   scrollToBottom();
 }
 
@@ -421,9 +426,15 @@ export function renderMessageActions(row, { details, stopped }) {
     det.type = 'button';
     det.textContent = 'Details';
     det.addEventListener('click', () => {
-      const existing = row.querySelector('.details-panel');
-      if (existing) { existing.remove(); det.textContent = 'Details'; }
-      else { renderDetails(row.querySelector('.bubble-content'), details); det.textContent = 'Hide details'; }
+      // .leaving is one still collapsing from the last click
+      const existing = row.querySelector('.details-panel:not(.leaving)');
+      if (existing) {
+        det.textContent = 'Details';
+        collapseOut(existing).then(() => existing.remove());
+      } else {
+        revealBlock(renderDetails(row.querySelector('.bubble-content'), details));
+        det.textContent = 'Hide details';
+      }
     });
     actions.appendChild(det);
   }
@@ -436,6 +447,7 @@ export function renderMessageActions(row, { details, stopped }) {
   }
 
   row.appendChild(actions);
+  staggerIn(actions.children, { y: 6, each: 0.06 });
 }
 
 export function attachMessageExtras(contentEl, extra, { last = false } = {}) {

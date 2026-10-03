@@ -4,6 +4,7 @@ import { ensureConversation, loadConversations } from './conversations.js';
 import { addRow, showTypingIndicator, createTypewriter, parseTail, renderMessageActions, renderSources, createThinkingPanel, setThinkingText } from './render.js';
 import { createExecutionPanel } from './agentstream.js';
 import { typesetMath, highlightCode } from './markdown.js';
+import { popIn, popOut, revealBlock, sendPulse, staggerIn } from './motion.js';
 
 const inputEl = dom.input;
 const sendBtn = dom.sendBtn;
@@ -12,6 +13,7 @@ const modeMenuBtn = document.getElementById('modeMenuBtn');
 const modeMenuPop = document.getElementById('modeMenuPop');
 const modeMenuLabelEl = document.getElementById('modeMenuLabel');
 const MODE_LABELS = { instant: 'Instant', thinking: 'Thinking' };
+const composerEl = document.querySelector('.composer');
 
 export function autoResize() {
   inputEl.style.height = 'auto';
@@ -19,6 +21,8 @@ export function autoResize() {
 }
 
 export function updateSendState() {
+  // spins the ring around the composer while a response is coming in
+  composerEl.classList.toggle('busy', state.isStreaming);
   if (state.isStreaming) {
     sendBtn.classList.add('stop');
     sendBtn.disabled = false;
@@ -103,7 +107,7 @@ async function streamInto(contentEl, row, { path, body }) {
     // create the thinking panel lazily on the first real content so a model
     // that exposes no thoughts doesn't show an empty/fake reasoning section
     if (thinkingMode && parsed.thinking) {
-      if (!thinkingPanel) thinkingPanel = createThinkingPanel(row);
+      if (!thinkingPanel) { thinkingPanel = createThinkingPanel(row); revealBlock(thinkingPanel); }
       setThinkingText(thinkingPanel, parsed.thinking);
     }
   }
@@ -160,7 +164,10 @@ function finishStream(contentEl, text, sources, details, error, stopped, network
   } else {
     typesetMath(bubble);
     highlightCode(bubble);
-    if (sources) renderSources(bubble, sources);
+    if (sources) {
+      renderSources(bubble, sources);
+      staggerIn(bubble.querySelectorAll('.sources-count, .source-item'), { y: 8 });
+    }
     renderMessageActions(row, { details, stopped });
     scrollToBottom();
   }
@@ -194,6 +201,7 @@ export async function sendMessage() {
 
   const conversationId = await ensureConversation();
 
+  sendPulse();
   inputEl.value = '';
   autoResize();
   addRow('user', text);
@@ -237,16 +245,20 @@ export function setAgentMode(mode) {
   });
 }
 
+// open state lives on aria-expanded, not .hidden: the popover stays
+// un-hidden for the length of its exit tween
+const modeMenuOpen = () => modeMenuBtn.getAttribute('aria-expanded') === 'true';
+
 function closeModeMenu() {
-  modeMenuPop.hidden = true;
   modeMenuBtn.setAttribute('aria-expanded', 'false');
+  popOut(modeMenuPop);
 }
 
 modeMenuBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  const willOpen = modeMenuPop.hidden;
-  modeMenuPop.hidden = !willOpen;
-  modeMenuBtn.setAttribute('aria-expanded', String(willOpen));
+  if (modeMenuOpen()) { closeModeMenu(); return; }
+  modeMenuBtn.setAttribute('aria-expanded', 'true');
+  popIn(modeMenuPop);
 });
 
 modeMenuPop.addEventListener('click', (e) => {
@@ -257,7 +269,7 @@ modeMenuPop.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', (e) => {
-  if (modeMenuPop.hidden) return;
+  if (!modeMenuOpen()) return;
   if (modeMenuEl.contains(e.target)) return;
   closeModeMenu();
 });

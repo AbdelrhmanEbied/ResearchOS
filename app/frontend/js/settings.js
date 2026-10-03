@@ -1,5 +1,6 @@
 import { api, showToast } from './utils.js';
 import { setAgentMode } from './chat.js';
+import { closeModal, openModal, staggerIn } from './motion.js';
 
 const settingsModal = document.getElementById('settingsModal');
 const settingsModalClose = document.getElementById('settingsModalClose');
@@ -88,8 +89,12 @@ async function loadSettings() {
   }
 }
 
-export function openSettingsModal() { settingsModal.hidden = false; loadSettings(); }
-export function closeSettingsModal() { settingsModal.hidden = true; }
+export function openSettingsModal() {
+  openModal(settingsModal);
+  staggerIn(settingsModal.querySelectorAll('.modal-body > *'), { y: 8, amount: 0.4 });
+  loadSettings();
+}
+export function closeSettingsModal() { closeModal(settingsModal); }
 
 setLlmSave.addEventListener('click', async () => {
   const model = setModel.value.trim();

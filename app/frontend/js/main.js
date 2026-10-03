@@ -1,6 +1,6 @@
 import { dom } from './state.js';
 import { loadConversations } from './conversations.js';
-import { applyMagnetic, initHeroAnimation, spawnParticles } from './motion.js';
+import { applyMagnetic, initHeroAnimation, initRipples, initSpotlight, playIntro, spawnParticles } from './motion.js';
 import { closeSettingsModal } from './settings.js';
 import { closeDocsModal } from './documents.js';
 import { closeTelemetryModal } from './analytics.js';
@@ -35,6 +35,9 @@ applyMagnetic(dom.newChatBtn);
 /* ---- boot ---- */
 
 spawnParticles();
+initSpotlight();
+initRipples();
+playIntro();
 initHeroAnimation();
 loadConversations();
 dom.input.focus();

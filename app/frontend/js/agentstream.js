@@ -9,6 +9,7 @@
 // finish when it reports an end, and durations come from the server.
 
 import { fmtMs } from './utils.js';
+import { enterAgentRow, popIcon, revealBlock, shake, toggleHeight } from './motion.js';
 
 const ICON_RUNNING = '<span class="ar-spin" aria-hidden="true"></span>';
 const ICON_DONE = '<span class="ar-check" aria-hidden="true">✓</span>';
@@ -60,6 +61,7 @@ export function createExecutionPanel(row) {
 
   const inner = row.querySelector('.row-inner') || row;
   row.insertBefore(panel, inner);
+  revealBlock(panel);
 
   const badge = head.querySelector('.agent-badge');
   const timeEl = head.querySelector('.agent-time');
@@ -75,7 +77,7 @@ export function createExecutionPanel(row) {
   head.addEventListener('click', () => {
     const open = panel.classList.toggle('open');
     head.setAttribute('aria-expanded', String(open));
-    body.hidden = !open;
+    toggleHeight(body, open);
   });
 
   function startTicker() {
@@ -144,6 +146,7 @@ export function createExecutionPanel(row) {
     headEl.appendChild(metaEl);
     el.appendChild(headEl);
     rowsEl.appendChild(el);
+    enterAgentRow(el);
 
     rec = { id, depth, el, iconEl, labelEl, metaEl };
     rowsById.set(id, rec);
@@ -157,8 +160,7 @@ export function createExecutionPanel(row) {
       }
       const detail = el.querySelector('.ar-detail');
       if (!detail) return;
-      const open = (detail.hidden = !detail.hidden);
-      el.classList.toggle('open', open);
+      toggleHeight(detail, el.classList.toggle('open'));
     });
 
     return rec;
@@ -172,10 +174,12 @@ export function createExecutionPanel(row) {
   }
 
   function markDone(rec, meta) {
+    const already = rec.el.classList.contains('done');
     rec.el.classList.remove('running', 'failed', 'stopped');
     rec.el.classList.add('done');
     rec.iconEl.innerHTML = ICON_DONE;
     rec.metaEl.textContent = meta || '';
+    if (!already) popIcon(rec.iconEl.firstElementChild);
   }
 
   function markFailed(rec, message) {
@@ -183,6 +187,8 @@ export function createExecutionPanel(row) {
     rec.el.classList.add('failed');
     rec.iconEl.innerHTML = ICON_FAILED;
     if (message) rec.el.title = message;
+    popIcon(rec.iconEl.firstElementChild);
+    shake(rec.el);
   }
 
   function addErrorNote(rec, message) {

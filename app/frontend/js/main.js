@@ -2,7 +2,7 @@ import { dom } from './state.js';
 import { loadConversations } from './conversations.js';
 import { applyMagnetic, initHeroAnimation, spawnParticles } from './motion.js';
 import { closeSettingsModal } from './settings.js';
-import { closeDocsModal, closeCompareModal } from './documents.js';
+import { closeDocsModal } from './documents.js';
 import { closeTelemetryModal } from './analytics.js';
 
 /* ---- mobile sidebar drawer ---- */
@@ -24,7 +24,6 @@ document.addEventListener('keydown', (e) => {
   closeDocsModal();
   closeTelemetryModal();
   closeSettingsModal();
-  closeCompareModal();
 });
 
 /* ---- magnetic buttons (44px hit area is handled in css) ---- */

@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
-from agent.agent_schemas import PromptMode
-from rag.rag_schemas import Context, RetrievedDocuments, SearchType
+from rag.rag_schemas import Context, PromptMode, RetrievedDocuments, SearchType
 from rag.rag_service import RAGService
 from rag.reranker import Reranker
 from rag.retriever import Retriever

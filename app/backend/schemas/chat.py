@@ -18,7 +18,7 @@ class ModeOverride(StrEnum):
 
 
 class AgentMode(StrEnum):
-    FAST = "fast"
+    INSTANT = "instant"
     THINKING = "thinking"
 
 

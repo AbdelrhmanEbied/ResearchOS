@@ -8,12 +8,6 @@ const docsBtn = document.getElementById('docsBtn');
 const docsModal = document.getElementById('docsModal');
 const docsModalBody = document.getElementById('docsModalBody');
 const docsModalClose = document.getElementById('docsModalClose');
-const compareBtn = document.getElementById('compareBtn');
-const compareModal = document.getElementById('compareModal');
-const compareModalClose = document.getElementById('compareModalClose');
-const compareSelect = document.getElementById('compareSelect');
-const compareNote = document.getElementById('compareNote');
-const compareGo = document.getElementById('compareGo');
 const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
 
@@ -78,39 +72,6 @@ function openDocsModal() {
 
 export function closeDocsModal() { docsModal.hidden = true; }
 
-async function openCompareModal() {
-  compareModal.hidden = false;
-  compareNote.value = '';
-  compareSelect.innerHTML = '<div class="modal-empty">Loading…</div>';
-  try {
-    const res = await api('/documents/');
-    const docs = await res.json();
-    if (!docs.length) {
-      compareSelect.innerHTML = '<div class="modal-empty">No documents uploaded yet. Attach a document first.</div>';
-      return;
-    }
-    compareSelect.innerHTML = '';
-    for (const doc of docs) {
-      const label = document.createElement('label');
-      label.className = 'compare-opt';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = doc.id;
-      const span = document.createElement('span');
-      span.className = 'doc-name';
-      span.textContent = doc.name;
-      span.title = doc.name;
-      label.appendChild(cb);
-      label.appendChild(span);
-      compareSelect.appendChild(label);
-    }
-  } catch (err) {
-    compareSelect.innerHTML = `<div class="modal-empty">${escapeHtml(err.message)}</div>`;
-  }
-}
-
-export function closeCompareModal() { compareModal.hidden = true; }
-
 async function summarizeDocument(doc) {
   const conversationId = await ensureConversation();
   try {
@@ -126,7 +87,6 @@ async function summarizeDocument(doc) {
   closeDocsModal();
   dom.input.value = 'Summarize the key points of this document.';
   state.pendingMode = 'summarize';
-  dom.sourceSelect.value = 'documents';
   autoResize();
   updateSendState();
   await sendMessage();
@@ -155,34 +115,6 @@ export async function uploadDocument(file) {
 docsBtn.addEventListener('click', openDocsModal);
 docsModalClose.addEventListener('click', closeDocsModal);
 docsModal.addEventListener('click', (e) => { if (e.target === docsModal) closeDocsModal(); });
-
-compareBtn.addEventListener('click', openCompareModal);
-compareModalClose.addEventListener('click', closeCompareModal);
-compareModal.addEventListener('click', (e) => { if (e.target === compareModal) closeCompareModal(); });
-
-compareGo.addEventListener('click', async () => {
-  const ids = [...compareSelect.querySelectorAll('input:checked')].map(i => Number(i.value));
-  if (!ids.length) { showToast('Select at least one document'); return; }
-  const note = compareNote.value.trim();
-  const conversationId = await ensureConversation();
-  try {
-    await api('/documents/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: conversationId, document_ids: ids }),
-    });
-  } catch (_) {
-    showToast('Failed to link documents');
-    return;
-  }
-  closeCompareModal();
-  dom.input.value = note || 'Compare these documents, highlighting the similarities and differences.';
-  state.pendingMode = 'compare';
-  dom.sourceSelect.value = 'documents';
-  autoResize();
-  updateSendState();
-  await sendMessage();
-});
 
 attachBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => {

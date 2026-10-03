@@ -21,6 +21,15 @@ app.include_router(telemetry_router)
 app.include_router(settings_router)
 
 
+@app.middleware("http")
+async def revalidate_frontend_assets(request, call_next):
+    """Force revalidation of static assets so a reload never mixes old JS with new HTML."""
+    response = await call_next(request)
+    if "etag" in response.headers:
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health_check():
     return {"status": "ok"}

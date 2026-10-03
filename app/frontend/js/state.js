@@ -12,7 +12,6 @@ export const dom = {
   toast: document.getElementById('toast'),
   sidebar: document.getElementById('sidebar'),
   sidebarToggle: document.getElementById('sidebarToggle'),
-  sourceSelect: document.getElementById('sourceSelect'),
 };
 
 // captured before anything mutates it (splitHeroLetters rewrites the
@@ -29,5 +28,5 @@ export const state = {
   // breaks for any other reason is not a user stop
   userStopped: false,
   pendingMode: null,
-  agentMode: 'fast',
+  agentMode: 'instant',
 };

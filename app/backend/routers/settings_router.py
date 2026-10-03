@@ -23,7 +23,19 @@ class RetrievalSettingsUpdate(BaseModel):
     search_type: str | None = Field(default=None, pattern="^(hybrid|dense|sparse)$")
     limit: int | None = Field(default=None, ge=1, le=50)
     rerank: bool | None = None
+    rerank_top_k: int | None = Field(default=None, ge=1, le=50)
+
+
+class WebSettingsUpdate(BaseModel):
+    results_per_query: int | None = Field(default=None, ge=1, le=10)
+    pages_fetched: int | None = Field(default=None, ge=1, le=10)
     search_depth: str | None = Field(default=None, pattern="^(basic|advanced)$")
+
+
+class AgentSettingsUpdate(BaseModel):
+    recursion_limit: int | None = Field(default=None, ge=25, le=500)
+    max_research_iterations: int | None = Field(default=None, ge=1, le=6)
+    default_effort: str | None = Field(default=None, pattern="^(instant|thinking)$")
 
 
 @router.get("/")
@@ -51,6 +63,26 @@ def update_retrieval(body: RetrievalSettingsUpdate):
         search_type=body.search_type,
         limit=body.limit,
         rerank=body.rerank,
+        rerank_top_k=body.rerank_top_k,
+    )
+    return {"ok": True}
+
+
+@router.put("/web")
+def update_web(body: WebSettingsUpdate):
+    get_settings_store().set_web(
+        results_per_query=body.results_per_query,
+        pages_fetched=body.pages_fetched,
         search_depth=body.search_depth,
+    )
+    return {"ok": True}
+
+
+@router.put("/agent")
+def update_agent(body: AgentSettingsUpdate):
+    get_settings_store().set_agent(
+        recursion_limit=body.recursion_limit,
+        max_research_iterations=body.max_research_iterations,
+        default_effort=body.default_effort,
     )
     return {"ok": True}

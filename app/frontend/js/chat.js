@@ -2,17 +2,16 @@ import { dom, state } from './state.js';
 import { api, showToast } from './utils.js';
 import { ensureConversation, loadConversations } from './conversations.js';
 import { addRow, showTypingIndicator, createTypewriter, parseTail, renderMessageActions, renderSources, createThinkingPanel, setThinkingText } from './render.js';
-import { typesetMath } from './markdown.js';
+import { createExecutionPanel } from './agentstream.js';
+import { typesetMath, highlightCode } from './markdown.js';
 
 const inputEl = dom.input;
 const sendBtn = dom.sendBtn;
-const sourceSelectEl = dom.sourceSelect;
-const advancedBtnEl = document.getElementById('advancedBtn');
-const advancedPopoverEl = document.getElementById('advancedPopover');
-const reqSearchTypeEl = document.getElementById('reqSearchType');
-const reqSearchDepthEl = document.getElementById('reqSearchDepth');
-const reqRetrieveLimitEl = document.getElementById('reqRetrieveLimit');
-const reqRerankEl = document.getElementById('reqRerank');
+const modeMenuEl = document.getElementById('modeMenu');
+const modeMenuBtn = document.getElementById('modeMenuBtn');
+const modeMenuPop = document.getElementById('modeMenuPop');
+const modeMenuLabelEl = document.getElementById('modeMenuLabel');
+const MODE_LABELS = { instant: 'Instant', thinking: 'Thinking' };
 
 export function autoResize() {
   inputEl.style.height = 'auto';
@@ -33,23 +32,6 @@ export function updateSendState() {
   }
 }
 
-function selectedSource() {
-  const v = sourceSelectEl.value;
-  return v === 'auto' ? undefined : v;
-}
-
-function retrievalConfig() {
-  const cfg = {};
-  if (reqSearchTypeEl.value) cfg.search_type = reqSearchTypeEl.value;
-  if (reqSearchDepthEl.value) cfg.search_depth = reqSearchDepthEl.value;
-  if (reqRetrieveLimitEl.value) {
-    const n = Number(reqRetrieveLimitEl.value);
-    if (n >= 1 && n <= 50) cfg.limit = n;
-  }
-  if (reqRerankEl.checked) cfg.rerank = true;
-  return Object.keys(cfg).length ? cfg : undefined;
-}
-
 // streams a chat or regenerate response into an assistant bubble and wires
 // up the sources / details / regenerate affordances on completion
 async function streamInto(contentEl, row, { path, body }) {
@@ -62,6 +44,8 @@ async function streamInto(contentEl, row, { path, body }) {
 
   const thinkingMode = body.agent_mode === 'thinking';
   let thinkingPanel = null;
+  let execPanel = null;
+  let appliedEvents = 0;
 
   let res;
   try {
@@ -80,10 +64,10 @@ async function streamInto(contentEl, row, { path, body }) {
     state.currentController = null;
     updateSendState();
     if (err.name === 'AbortError' || controller.signal.aborted) {
-      finishStream(contentEl, '', null, null, null, state.userStopped, false, null, thinkingPanel);
+      finishStream(contentEl, '', null, null, null, state.userStopped, false, null, thinkingPanel, execPanel);
       return;
     }
-    finishStream(contentEl, '', null, null, err, false, false, null, thinkingPanel);
+    finishStream(contentEl, '', null, null, err, false, false, null, thinkingPanel, execPanel);
     return;
   }
 
@@ -108,6 +92,13 @@ async function streamInto(contentEl, row, { path, body }) {
     if (!piece) continue;
     full += piece;
     const parsed = parseTail(full);
+    // events arrive interleaved with the answer text; only the new tail is
+    // applied so replaying the whole buffer can't duplicate a row
+    if (parsed.events.length > appliedEvents) {
+      if (!execPanel) execPanel = createExecutionPanel(row);
+      for (let i = appliedEvents; i < parsed.events.length; i++) execPanel.apply(parsed.events[i]);
+      appliedEvents = parsed.events.length;
+    }
     typer.push(parsed.text);
     // create the thinking panel lazily on the first real content so a model
     // that exposes no thoughts doesn't show an empty/fake reasoning section
@@ -133,13 +124,18 @@ async function streamInto(contentEl, row, { path, body }) {
     state.userStopped,
     networkBroken,
     parsed.thinking,
-    thinkingPanel
+    thinkingPanel,
+    execPanel
   );
 }
 
-function finishStream(contentEl, text, sources, details, error, stopped, networkBroken, thinking, thinkingPanel) {
+function finishStream(contentEl, text, sources, details, error, stopped, networkBroken, thinking, thinkingPanel, execPanel) {
   const row = contentEl.closest('.row');
   const bubble = contentEl;
+
+  if (execPanel) {
+    execPanel.finish({ error: Boolean(error || networkBroken), stopped: Boolean(stopped) });
+  }
 
   if (error) {
     bubble.innerHTML = '';
@@ -163,6 +159,7 @@ function finishStream(contentEl, text, sources, details, error, stopped, network
     renderMessageActions(row, { details: null, stopped: false });
   } else {
     typesetMath(bubble);
+    highlightCode(bubble);
     if (sources) renderSources(bubble, sources);
     renderMessageActions(row, { details, stopped });
     scrollToBottom();
@@ -182,15 +179,11 @@ export async function regenerateLast() {
   if (!row) return;
   const bubble = row.querySelector('.bubble-content');
 
-  row.querySelectorAll('.msg-actions, .details-panel, .source-list, .sources-count, .thinking-panel').forEach(n => n.remove());
+  row.querySelectorAll('.msg-actions, .details-panel, .source-list, .sources-count, .thinking-panel, .agent-panel').forEach(n => n.remove());
   bubble.innerHTML = '';
   showTypingIndicator(bubble);
 
   const body = { conversation_id: state.currentConversationId, agent_mode: state.agentMode };
-  const src = selectedSource();
-  if (src) body.source = src;
-  const retr = retrievalConfig();
-  if (retr) body.retrieval = retr;
 
   await streamInto(bubble, row, { path: '/chat/regenerate', body });
 }
@@ -210,10 +203,6 @@ export async function sendMessage() {
 
   const body = { query: text, conversation_id: conversationId, agent_mode: state.agentMode };
   if (state.pendingMode) { body.mode = state.pendingMode; state.pendingMode = null; }
-  const src = selectedSource();
-  if (src) body.source = src;
-  const retr = retrievalConfig();
-  if (retr) body.retrieval = retr;
 
   await streamInto(assistantContent, row, { path: '/chat/', body });
 }
@@ -234,18 +223,43 @@ inputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
-advancedBtnEl.addEventListener('click', () => {
-  const open = advancedPopoverEl.classList.toggle('open');
-  advancedPopoverEl.hidden = !open;
-  advancedBtnEl.classList.toggle('active', open);
+/* response effort menu: collapsible, sits next to the send button */
+
+// also used by settings.js, which applies the stored default effort
+export function setAgentMode(mode) {
+  if (!MODE_LABELS[mode]) return;
+  state.agentMode = mode;
+  modeMenuLabelEl.textContent = MODE_LABELS[mode];
+  modeMenuPop.querySelectorAll('.mode-menu-item').forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+function closeModeMenu() {
+  modeMenuPop.hidden = true;
+  modeMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+modeMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const willOpen = modeMenuPop.hidden;
+  modeMenuPop.hidden = !willOpen;
+  modeMenuBtn.setAttribute('aria-expanded', String(willOpen));
 });
 
-const modeToggleEl = document.querySelector('.mode-toggle');
-modeToggleEl.addEventListener('click', (e) => {
-  const btn = e.target.closest('.mode-toggle-btn');
-  if (!btn) return;
-  modeToggleEl.querySelectorAll('.mode-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
-  state.agentMode = btn.dataset.mode;
+modeMenuPop.addEventListener('click', (e) => {
+  const item = e.target.closest('.mode-menu-item');
+  if (!item) return;
+  setAgentMode(item.dataset.mode);
+  closeModeMenu();
+});
+
+document.addEventListener('click', (e) => {
+  if (modeMenuPop.hidden) return;
+  if (modeMenuEl.contains(e.target)) return;
+  closeModeMenu();
 });
 
 // delegated, the empty state gets replaced wholesale on every remount

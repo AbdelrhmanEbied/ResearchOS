@@ -97,7 +97,99 @@ def test_settings_endpoints(tmp_path, monkeypatch):
 
         res = client.put(
             "/settings/retrieval",
-            json={"search_type": "sparse", "limit": 8, "rerank": False},
+            json={"search_type": "sparse", "limit": 8, "rerank": False, "rerank_top_k": 3},
         )
         assert res.status_code == 200
-        assert client.get("/settings/").json()["retrieval"]["search_type"] == "sparse"
+        public = client.get("/settings/").json()
+        assert public["retrieval"]["search_type"] == "sparse"
+        assert public["retrieval"]["rerank_top_k"] == 3
+
+        res = client.put(
+            "/settings/web",
+            json={"results_per_query": 7, "pages_fetched": 4, "search_depth": "advanced"},
+        )
+        assert res.status_code == 200
+        assert client.get("/settings/").json()["web"] == {
+            "results_per_query": 7,
+            "pages_fetched": 4,
+            "search_depth": "advanced",
+        }
+
+        res = client.put(
+            "/settings/agent",
+            json={
+                "recursion_limit": 250,
+                "max_research_iterations": 4,
+                "default_effort": "thinking",
+            },
+        )
+        assert res.status_code == 200
+        assert client.get("/settings/").json()["agent"] == {
+            "recursion_limit": 250,
+            "max_research_iterations": 4,
+            "default_effort": "thinking",
+        }
+
+        assert client.put("/settings/agent", json={"recursion_limit": 5}).status_code == 422
+        assert client.put("/settings/web", json={"pages_fetched": 50}).status_code == 422
+        assert (
+            client.put("/settings/agent", json={"default_effort": "turbo"}).status_code == 422
+        )
+
+
+def test_store_web_and_agent_defaults_and_overrides(isolated_store):
+    store = get_settings_store(isolated_store)
+    assert store.get_web() == {
+        "results_per_query": 5,
+        "pages_fetched": 5,
+        "search_depth": "basic",
+    }
+    assert store.get_agent() == {
+        "recursion_limit": 150,
+        "max_research_iterations": 3,
+        "default_effort": "instant",
+    }
+
+    store.set_web(results_per_query=8, pages_fetched=3, search_depth="advanced")
+    store.set_agent(recursion_limit=400, max_research_iterations=2, default_effort="thinking")
+
+    reloaded = get_settings_store(isolated_store)
+    assert reloaded.get_web() == {
+        "results_per_query": 8,
+        "pages_fetched": 3,
+        "search_depth": "advanced",
+    }
+    assert reloaded.get_agent() == {
+        "recursion_limit": 400,
+        "max_research_iterations": 2,
+        "default_effort": "thinking",
+    }
+
+
+def test_agent_and_web_settings_are_clamped(isolated_store):
+    store = get_settings_store(isolated_store)
+    store.set_web(results_per_query=99, pages_fetched=0, search_depth="silly")
+    store.set_agent(recursion_limit=99999, max_research_iterations=0, default_effort="nope")
+
+    web = store.get_web()
+    assert web["results_per_query"] == 10
+    assert web["pages_fetched"] == 1
+    assert web["search_depth"] == "basic"
+
+    agent = store.get_agent()
+    assert agent["recursion_limit"] == 500
+    assert agent["max_research_iterations"] == 1
+    assert agent["default_effort"] == "instant"
+
+
+def test_legacy_search_depth_still_applies(isolated_store):
+    """search_depth used to live under retrieval; old files keep working."""
+    store = get_settings_store(isolated_store)
+    store.set("retrieval", {"search_type": "hybrid", "search_depth": "advanced"})
+    assert store.get_web()["search_depth"] == "advanced"
+
+
+def test_public_dict_exposes_web_and_agent(isolated_store):
+    public = get_settings_store(isolated_store).public_dict()
+    assert public["web"]["results_per_query"] == 5
+    assert public["agent"]["recursion_limit"] == 150

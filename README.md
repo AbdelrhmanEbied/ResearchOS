@@ -1,8 +1,8 @@
-# Research-Assistant
+# ResearchOS
 
 A local-first AI research assistant with a clean web UI for chatting with LLMs, uploading documents, and searching your knowledge base with hybrid RAG. Your chats, documents, and settings live on your own machine. Models, retrieval options, and API keys are configurable from a Settings page — no code editing required.
 
-[![CI/CD](https://github.com/AbdelrhmanEbied/research-assistant/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/AbdelrhmanEbied/research-assistant/actions/workflows/ci-cd.yaml)
+[![CI/CD](https://github.com/AbdelrhmanEbied/ResearchOS/actions/workflows/ci-cd.yaml/badge.svg)](https://github.com/AbdelrhmanEbied/ResearchOS/actions/workflows/ci-cd.yaml)
 
 ## Demo
 
@@ -12,7 +12,7 @@ A local-first AI research assistant with a clean web UI for chatting with LLMs, 
 
 ## What it does
 
-Research-Assistant gives you a simple GUI where you can:
+ResearchOS gives you a simple GUI where you can:
 
 * chat with Google Gemini, OpenAI, or Anthropic Claude
 * switch models / providers and set API keys from the Settings page
@@ -156,7 +156,7 @@ Documents are chunked, embedded with FastEmbed (dense) and BM25 (sparse), and st
 ## Project structure
 
 ```bash
-research-assistant/
+ResearchOS/
 ├── agent/
 │   ├── graphs/            # orchestrator + web/document/code/analysis/verification/writing/quality sub-graphs
 │   ├── nodes/             # routing, planning, task, writing, quality nodes
@@ -193,15 +193,15 @@ research-assistant/
 
 ## Getting started
 
-You can run Research-Assistant either **with Docker** (recommended) or **locally with uv**.
+You can run ResearchOS either **with Docker** (recommended) or **locally with uv**.
 
 ### Option A — Run with Docker (recommended)
 
 Requires [Docker](https://docs.docker.com/engine/install/) with the Compose plugin.
 
 ```bash
-git clone https://github.com/AbdelrhmanEbied/research-assistant.git
-cd research-assistant
+git clone https://github.com/AbdelrhmanEbied/ResearchOS.git
+cd ResearchOS
 
 cp .env.example .env
 # fill in your API keys (see "Environment variables" below)
@@ -239,8 +239,8 @@ docker compose pull               # pull a prebuilt image instead of building
 Requires Python 3.14+, [uv](https://docs.astral.sh/uv/), and running PostgreSQL and Qdrant instances.
 
 ```bash
-git clone https://github.com/AbdelrhmanEbied/research-assistant.git
-cd research-assistant
+git clone https://github.com/AbdelrhmanEbied/ResearchOS.git
+cd ResearchOS
 
 uv sync
 
@@ -373,7 +373,7 @@ A GitHub Actions workflow (`.github/workflows/ci-cd.yaml`) runs on every push to
 
 * **Lint & Test** — sets up Python 3.14 with `uv`, installs the locked dependencies, then runs `ruff check`, `ruff format --check`, and `pytest`.
 * **RAG Evaluation** — after tests pass, runs the retrieval-only evaluation on the sample dataset/corpus and fails the build if `hit_rate` or `mrr` drop below 0.7.
-* **Build & Push** — on pushes to `master` only (after lint/tests pass), builds the Docker image with BuildKit caching and `BAKE_MODELS=true` (so the embedding models ship inside the image) and pushes it to the GitHub Container Registry (`ghcr.io/<owner>/research-assistant`) tagged with the short commit SHA, `latest` on the default branch, and semver tags for `v*` releases.
+* **Build & Push** — on pushes to `master` only (after lint/tests pass), builds the Docker image with BuildKit caching and `BAKE_MODELS=true` (so the embedding models ship inside the image) and pushes it to the GitHub Container Registry (`ghcr.io/<owner>/ResearchOS`) tagged with the short commit SHA, `latest` on the default branch, and semver tags for `v*` releases.
 
 ## Credits
 

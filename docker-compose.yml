@@ -23,7 +23,7 @@ services:
       context: .
       args:
         BAKE_MODELS: "true"
-    image: research-assistant:latest
+    image: researchos:latest
     ports:
       - "8000:8000"
     env_file:

@@ -21,7 +21,7 @@ def search(query: str, *, max_results: int = 5, depth: str = "basic") -> list[di
 
 
 def fetch_page(url: str, *, timeout: int = 15) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 (research-assistant)"}
+    headers = {"User-Agent": "Mozilla/5.0 (ResearchOS)"}
     with httpx.Client(follow_redirects=True, timeout=timeout) as client:
         resp = client.get(url, headers=headers)
         resp.raise_for_status()

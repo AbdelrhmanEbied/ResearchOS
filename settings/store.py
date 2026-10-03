@@ -50,7 +50,18 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
 DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "google_genai")
 
-RETRIEVAL_KEYS = ("search_type", "limit", "rerank", "rerank_top_k", "search_depth")
+RETRIEVAL_KEYS = ("search_type", "limit", "rerank", "rerank_top_k")
+WEB_KEYS = ("results_per_query", "pages_fetched", "search_depth")
+AGENT_KEYS = ("recursion_limit", "max_research_iterations", "default_effort")
+
+EFFORTS = ("instant", "thinking")
+
+
+def _clamp(value: Any, low: int, high: int, default: int) -> int:
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 class SettingsStore:
@@ -130,10 +141,9 @@ class SettingsStore:
         stored = self._data.get("retrieval") or {}
         return {
             "search_type": stored.get("search_type") or "hybrid",
-            "limit": stored.get("limit") or 10,
+            "limit": _clamp(stored.get("limit"), 1, 50, 10),
             "rerank": True if stored.get("rerank") is None else bool(stored.get("rerank")),
-            "rerank_top_k": stored.get("rerank_top_k") or 5,
-            "search_depth": stored.get("search_depth") or "basic",
+            "rerank_top_k": _clamp(stored.get("rerank_top_k"), 1, 50, 5),
         }
 
     def set_retrieval(self, **kwargs: Any) -> None:
@@ -142,6 +152,39 @@ class SettingsStore:
             if key in kwargs and kwargs[key] is not None:
                 current[key] = kwargs[key]
         self.set("retrieval", current)
+
+    def get_web(self) -> dict[str, Any]:
+        stored = self._data.get("web") or {}
+        legacy_depth = (self._data.get("retrieval") or {}).get("search_depth")
+        depth = stored.get("search_depth") or legacy_depth or "basic"
+        return {
+            "results_per_query": _clamp(stored.get("results_per_query"), 1, 10, 5),
+            "pages_fetched": _clamp(stored.get("pages_fetched"), 1, 10, 5),
+            "search_depth": depth if depth in ("basic", "advanced") else "basic",
+        }
+
+    def set_web(self, **kwargs: Any) -> None:
+        current = self.get_web()
+        for key in WEB_KEYS:
+            if key in kwargs and kwargs[key] is not None:
+                current[key] = kwargs[key]
+        self.set("web", current)
+
+    def get_agent(self) -> dict[str, Any]:
+        stored = self._data.get("agent") or {}
+        effort = stored.get("default_effort")
+        return {
+            "recursion_limit": _clamp(stored.get("recursion_limit"), 25, 500, 150),
+            "max_research_iterations": _clamp(stored.get("max_research_iterations"), 1, 6, 3),
+            "default_effort": effort if effort in EFFORTS else "instant",
+        }
+
+    def set_agent(self, **kwargs: Any) -> None:
+        current = self.get_agent()
+        for key in AGENT_KEYS:
+            if key in kwargs and kwargs[key] is not None:
+                current[key] = kwargs[key]
+        self.set("agent", current)
 
     def public_dict(self) -> dict[str, Any]:
         llm = self.effective_llm()
@@ -159,6 +202,8 @@ class SettingsStore:
                 for name, info in PROVIDERS.items()
             },
             "retrieval": self.get_retrieval(),
+            "web": self.get_web(),
+            "agent": self.get_agent(),
         }
 
 

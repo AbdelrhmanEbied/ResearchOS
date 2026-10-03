@@ -8,7 +8,7 @@ A local-first AI research assistant with a clean web UI for chatting with LLMs, 
 
 ![Demo](assets/demo.gif)
 
-> The demo GIF is from an early release — the current version adds Thinking mode, agent tools, and much more (see the features below).
+> The demo GIF is from an early release — the current version adds Thinking mode, the live agent execution panel, token streaming, and much more (see the features below).
 
 ## What it does
 
@@ -16,13 +16,13 @@ Research-Assistant gives you a simple GUI where you can:
 
 * chat with Google Gemini, OpenAI, or Anthropic Claude
 * switch models / providers and set API keys from the Settings page
-* upload documents into a local knowledge base
-* scope retrieval to specific documents or use live web search via Tavily
-* force a mode (chat, summarize, compare, explain) or source (documents, web, chat) per request
-* **pick a response mode per request — Fast for low latency, or Thinking for a Claude-style reasoning agent** that streams its chain of thought and runs local tools (calculator, Python sandbox, document reading) before answering
-* stream responses with per-response details (model, retrieval options, latency, token usage) and citations
+* upload documents into a local knowledge base and scope retrieval to them
+* search the live web with Tavily
+* **pick an effort level per request — Instant or Thinking** — both route the message first (a greeting is answered directly, "search the web for…" runs the web tool). Instant runs only the tools it needs; Thinking runs the full research pipeline and streams its chain of thought
+* stream responses token-by-token with per-response details (model, retrieval options, latency, token usage) and citations that show the uploaded file name
+* watch a live execution tree of what the agent is doing (planning, sub-graphs, tool calls with durations), collapsed by default until you click it
 * regenerate an answer, export a conversation (markdown or JSON), rename chats, and search across them
-* view an analytics dashboard of requests, spans, and token usage
+* view an analytics dashboard of runs, router decisions, effort mix, tool usage, stage timing, and token usage
 * keep chat history stored locally on your machine
 
 Hybrid search is enabled by default, and dense-only and sparse-only retrieval are also available.
@@ -38,184 +38,156 @@ This project was built to learn and practice:
 * local document search and retrieval
 * frontend/backend communication for AI applications
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph FE["Frontend — app/frontend (vanilla JS, no bundler)"]
+        UI["Chat · Settings<br/>Documents · Analytics"]
+        RENDER["Render loop<br/>stream markers → execution panel,<br/>Thinking panel, answer, citations"]
+    end
+
+    subgraph BE["FastAPI — app/backend"]
+        API["Routers<br/>/chat · /documents · /settings<br/>/telemetry · /health"]
+        SVC["chat_service<br/>streaming · title task · persistence"]
+        EVENTS["agent_events<br/>graph events → marker frames"]
+    end
+
+    subgraph AGENT["LangGraph agent — agent/"]
+        ROUTE{"Router node<br/>quick or research?"}
+        DRAFT["Draft<br/>token streaming"]
+        PLAN["Plan<br/>skipped for single-tool runs"]
+        subgraph TASKS["Tool sub-graphs"]
+            WEB["web<br/>Tavily search + fetch"]
+            DOC["document<br/>hybrid retrieval"]
+            CODE["code<br/>sandboxed Python"]
+        end
+        PIPE["analysis → verification<br/>→ writing → quality<br/>Thinking only · replans on gaps"]
+        FINAL["finalize"]
+    end
+
+    subgraph STORES["Local stores"]
+        PG[("PostgreSQL<br/>chats · checkpointer")]
+        QDRANT[("Qdrant<br/>FastEmbed + BM25")]
+        SQLITE[("SQLite<br/>telemetry.db")]
+        DISK[("uploads · settings.json")]
+    end
+
+    LLM["LLM providers<br/>Gemini · OpenAI · Claude"]
+
+    UI -->|"POST /chat/stream"| API
+    API --> SVC
+    SVC --> AGENT
+    AGENT -->|"events + token deltas"| EVENTS
+    EVENTS --> RENDER
+    ROUTE -->|"quick"| DRAFT
+    ROUTE -->|"research"| PLAN
+    PLAN --> TASKS
+    TASKS --> PIPE
+    PIPE --> FINAL
+    DRAFT --> FINAL
+    DOC --> QDRANT
+    AGENT --> LLM
+    SVC --> PG
+    SVC --> SQLITE
+    SVC --> DISK
+```
+
+### Request flow
+
+1. The frontend sends the message (plus effort and any overrides) to `POST /chat/stream`.
+2. The router node decides **quick answer vs. research** and which tools are allowed — greetings never touch the pipeline, and a single-tool run skips the planner entirely.
+3. Research runs the tool sub-graphs it needs (web, documents, code), then — in **Thinking** effort — analysis, verification (with replanning when gaps remain), writing, and quality review. **Instant** effort stops after the tools and writes straight from the evidence.
+4. The backend streams back a `text/plain` body: raw answer tokens plus marker frames (`@@RESEARCH_THINKING@@`, `@@RESEARCH_SOURCES@@`, `@@RESEARCH_DETAILS@@`, `@@RESEARCH_EVENT@@`, `@@RESEARCH_ERROR@@`) carrying thoughts, citations, and normalized agent events.
+5. The frontend renders the live execution tree, the Thinking panel (both collapsed by default), and the answer bubble; every run is recorded in the local telemetry store.
+
+Documents are chunked, embedded with FastEmbed (dense) and BM25 (sparse), and stored in Qdrant; chats live in PostgreSQL, telemetry in SQLite, and settings in a gitignored `settings.json`.
+
 ## Features
 
 ### Agent & chat
 
 * Multi-provider LLM support (Gemini, OpenAI, Claude)
-* **Thinking / Fast modes** — a per-request toggle next to the composer:
-  * **Fast** — single-pass generation for low latency (Gemini 3 models are configured with `thinking_level="minimal"`)
-  * **Thinking** — a LangGraph ReAct loop that reasons step by step (Gemini 3 uses `thinking_level="high"` + `include_thoughts=True`), can call tools, and streams a collapsible **Thinking** panel above the final answer
-* **Live thinking stream** — the provider's actual thought content (Gemini exposes it as `thinking` content blocks) streams progressively into the panel while generating, with live tool statuses such as *Running Python...*, *Reading documents...*, and *Calling calculator...*
+* **Dynamic routing** — a router node runs first and decides whether the message needs tools at all, and which ones. Explicit overrides (e.g. the documents *summarize* action) beat the model's decision
+* **Instant / Thinking modes** — a collapsible menu next to the Send button:
+  * **Instant** — routes the message, runs only the tools it needs, then drafts. Skips analysis, verification and quality review for low latency (Gemini 3 uses `thinking_level="minimal"`)
+  * **Thinking** — the full pipeline: routing → plan → tools → analysis → verification → writing → quality review, with replanning when verification finds gaps (Gemini 3 uses `thinking_level="high"` + `include_thoughts=True`)
+* **Token streaming** — the answer is streamed as it is generated (not emitted in one chunk), so the typewriter, syntax highlighting, and math typesetting all run on live text
+* **Live execution panel** — a Claude Code style tree of the run: root agent, sub-graphs, steps, and tool calls with server-reported durations and a live badge. Collapsed by default; click the header to expand
+* **Thinking panel** — the provider's actual thought content (Gemini `thinking` content blocks) streams progressively while generating, with live tool statuses such as *Running Python…* and *Reading documents…*. Collapsed by default; persisted with the message
 * **Local-first agent tools** (no extra dependencies):
-  * `calculator` — safe AST-whitelisted arithmetic using `math`/`statistics`
-  * `python_code_executor` — runs Python in an isolated subprocess (`sys.executable -I`) in a per-conversation workspace with a 30s timeout
-  * `list_documents` / `read_document` — discover and read the documents scoped to the current conversation
-* Settings page for LLM defaults, API keys, and retrieval defaults
-* Per-request mode/source overrides and retrieval controls (search type, rerank, limit, web search depth)
+  * `web_search` / `fetch_url` — live web search and page fetching via Tavily
+  * `retrieve_documents` — hybrid retrieval over the documents scoped to the current conversation
+  * `run_code` — executes Python in an isolated subprocess (`python -I`) in a per-conversation workspace with a timeout
+* Settings page for model defaults, web search, RAG, and agent limits (recursion limit, research iterations, default effort)
 * Local chat UI with streaming responses, citations, and per-response details
-* **Single send/stop button** — the composer button toggles between sending a message and stopping generation while the model is replying
+* **Single send/stop button** — the composer button toggles between sending a message and stopping generation
 * Chat history stored locally with PostgreSQL and async SQLAlchemy
-* Conversation search, rename, export, and paginated history
+* Conversation search, rename, export (markdown / JSON), and paginated history
 * Regenerate answers
 
 ### Retrieval & documents
 
-* Document upload and management, with compare and summarize
-* **Fair multi-document retrieval** — compare queries are grouped per document (each in-scope document is queried separately with `ceil(limit / n)` chunks) and the reranker greedily guarantees ≥1 chunk per document before filling by relevance, so one document can't dominate the results
+* Document upload and management, with one-click summarization
 * Link documents to a conversation for scoped retrieval
 * Hybrid RAG retrieval with Qdrant (dense, sparse, and hybrid search types)
 * Live web search via Tavily (basic / advanced depth)
 * FastEmbed embeddings and cross-encoder reranking
+* Citations show the uploaded file name, page, and chunk
 
 ### Operations
 
-* Telemetry: local SQLite analytics store and in-app dashboard
+* Telemetry: local SQLite analytics store and in-app dashboard (runs, router decisions, effort mix, tool usage, stage timings, token usage)
 * Dockerized: multi-service stack (app, PostgreSQL, Qdrant) with pre-baked embedding models
-* Kubernetes-ready: manifests under `k8s/` deploy a single-replica app with a persistent volume, health probes, and ingress
-* CI/CD pipeline: lint, format, tests, image publishing to GHCR, and auto-deploy to Kubernetes
+* CI/CD pipeline: lint, format, tests, a retrieval-quality gate, and image publishing to GHCR
 
 ## Tech Stack
 
 * FastAPI
-* SQLAlchemy (async)
+* SQLAlchemy (async) + Alembic
 * PostgreSQL
-* LangChain
-* LangGraph
+* LangChain / LangGraph
 * Google Gemini / OpenAI / Anthropic Claude
-* Qdrant
-* FastEmbed
+* Qdrant + FastEmbed (dense + BM25)
 * Tavily
-* Alembic
-* HTML, CSS, JavaScript
+* HTML, CSS, JavaScript (ES modules, no bundler)
 * Docker
-
-## How it works
-
-1. You open the website.
-2. You send a message through the frontend (optionally picking a mode, source, and retrieval options).
-3. The frontend sends the request to the FastAPI backend.
-4. The LangGraph agent classifies the request — or honors your explicit overrides — retrieves context from your documents (Qdrant) or the web (Tavily) as needed, and streams the answer back.
-5. In **Thinking** mode the request is routed through a ReAct loop: the model reasons (streaming its thoughts), optionally calls local tools, then produces a final answer. The backend tags each streamed event so the frontend can separate thinking content from the final answer.
-6. Documents are embedded with FastEmbed and stored in Qdrant for hybrid search.
-7. Chats, messages, and metadata are stored in PostgreSQL; every request is recorded in the local telemetry store.
-
-### Thinking-mode streaming pipeline
-
-```
-Gemini API → LangChain (thinking_level=high, include_thoughts=true)
-           → LangGraph agent_reason ↔ execute_tools loop
-           → FastAPI stream (thought blocks + tool statuses + final answer)
-           → frontend Thinking panel (collapsible) + answer bubble
-```
-
-Gemini 3 models expose their reasoning as `{"type": "thinking"}` content blocks. The backend streams those blocks live, adds human-readable tool statuses from `on_tool_start` events, and buffers the answer text until the call ends — so thinking and answer events can never be mixed. Models that don't expose thinking simply stream their answer with no panel.
 
 ## Project structure
 
 ```bash
 research-assistant/
 ├── agent/
-│   ├── agent_schemas.py
-│   ├── graph.py
-│   ├── llms.py
-│   ├── nodes.py
-│   ├── prompts.py
-│   ├── tools.py            # calculator, python_code_executor, document tools
-│   ├── web_service.py
-│   └── __init__.py
-├── alembic/
-│   ├── env.py
-│   ├── script.py.mako
-│   └── versions/
-├── alembic.ini
+│   ├── graphs/            # orchestrator + web/document/code/analysis/verification/writing/quality sub-graphs
+│   ├── nodes/             # routing, planning, task, writing, quality nodes
+│   ├── prompts/
+│   ├── sandbox/           # isolated Python subprocess executor
+│   ├── state/             # AgentState schemas
+│   ├── tools/             # web_search, fetch_url, retrieve_documents, run_code
+│   ├── llms.py            # model resolution, structured outputs, streaming helpers
+│   └── web_service.py     # page fetch + parse for the web tool
+├── alembic/               # migrations (alembic.ini at root)
 ├── app/
 │   ├── backend/
-│   │   ├── main.py
-│   │   ├── lifespan.py
-│   │   ├── __init__.py
-│   │   ├── database/
-│   │   │   ├── base.py
-│   │   │   ├── database.py
-│   │   │   ├── models.py
-│   │   │   └── repositories.py
-│   │   ├── routers/
-│   │   │   ├── chat_router.py
-│   │   │   ├── document_router.py
-│   │   │   ├── settings_router.py
-│   │   │   └── telemetry_router.py
+│   │   ├── main.py        # FastAPI app, static files, cache revalidation middleware
+│   │   ├── lifespan.py    # service bootstrap (RAG, telemetry, graph, checkpointer)
+│   │   ├── database/      # models, repositories, async engine
+│   │   ├── routers/       # chat, documents, settings, telemetry
 │   │   ├── schemas/
-│   │   │   ├── chat.py
-│   │   │   ├── conversation.py
-│   │   │   └── document.py
-│   │   └── services/
-│   │       ├── chat_service.py
-│   │       └── document_service.py
-│   ├── frontend/
-│   │   ├── index.html
-│   │   ├── css/
-│   │   │   └── styles.css
-│   │   └── js/
-│   │       ├── analytics.js
-│   │       ├── chat.js
-│   │       ├── conversations.js
-│   │       ├── documents.js
-│   │       ├── main.js
-│   │       ├── markdown.js
-│   │       ├── motion.js
-│   │       ├── render.js
-│   │       ├── settings.js
-│   │       ├── state.js
-│   │       └── utils.js
-│   └── __init__.py
-├── rag/
-│   ├── builders.py
-│   ├── chunker.py
-│   ├── embedder.py
-│   ├── loader.py
-│   ├── qdrant_manager.py
-│   ├── rag_schemas.py
-│   ├── rag_service.py
-│   ├── reranker.py
-│   ├── retriever.py
-│   └── __init__.py
-├── settings/
-│   ├── store.py
-│   └── __init__.py
-├── telemetry/
-│   ├── config.py
-│   ├── storage.py
-│   ├── tokens.py
-│   ├── tracker.py
-│   └── __init__.py
+│   │   └── services/      # chat, document, agent_events, agent_telemetry
+│   └── frontend/
+│       ├── index.html
+│       ├── css/styles.css
+│       └── js/            # ES modules: chat, render, agentstream, analytics, …
+├── rag/                   # loader, chunker, embedder, retriever, reranker, qdrant manager
+├── settings/              # settings.json store
+├── telemetry/             # SQLite analytics store
+├── evaluation/            # retrieval metrics + LLM-as-judge
 ├── tests/
-│   ├── test_agent_graph.py
-│   ├── test_builders.py
-│   ├── test_chat_service.py
-│   ├── test_llms.py
-│   ├── test_retrieval.py
-│   ├── test_routers.py
-│   ├── test_settings.py
-│   ├── test_telemetry.py
-│   └── test_tools.py
-├── .github/
-│   └── workflows/ci-cd.yaml
-├── k8s/
-│   ├── configmap.yaml
-│   ├── deployment.yaml
-│   ├── ingress.yaml
-│   ├── namespace.yaml
-│   ├── pvc.yaml
-│   └── service.yaml
-├── scripts/
-│   └── deploy.sh
-├── .env.example
-├── .dockerignore
-├── Dockerfile
-├── docker-compose.yml
-├── paths.py
-├── pyproject.toml
-├── uv.lock
+├── scripts/evaluate_rag.py
+├── .github/workflows/ci-cd.yaml
+├── Dockerfile · docker-compose.yml · .env.example
+├── paths.py · pyproject.toml · uv.lock
 └── README.md
 ```
 
@@ -264,14 +236,11 @@ docker compose pull               # pull a prebuilt image instead of building
 
 ### Option B — Run locally with uv
 
-Requires Python 3.14+, [uv](https://docs.astral.sh/uv/), and a running PostgreSQL instance.
+Requires Python 3.14+, [uv](https://docs.astral.sh/uv/), and running PostgreSQL and Qdrant instances.
 
 ```bash
 git clone https://github.com/AbdelrhmanEbied/research-assistant.git
 cd research-assistant
-
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 uv sync
 
@@ -311,16 +280,18 @@ Keys and defaults can also be changed at runtime from the **Settings** page — 
 
 ## Configuration
 
-Settings are managed from the **Settings** page in the UI and persisted to a local `settings.json` (which is gitignored because it may hold API keys). Environment variables only seed the defaults on first run.
+Settings are managed from the **Settings** page in the UI and persisted to a local `settings.json` (gitignored because it may hold API keys). Environment variables only seed the defaults on first run.
 
-* **LLM** — choose the default model and provider (Gemini, OpenAI, or Claude) and store the corresponding API keys. You can also override the model per request from the chat input row.
-* **Retrieval** — set defaults for the search type (hybrid, dense, sparse), the number of documents retrieved, reranking, and the Tavily web search depth (basic, advanced).
+* **Model** — default model and provider (Gemini, OpenAI, or Claude) and the matching API key
+* **Web search** — results per query, pages fetched per task, and the Tavily search depth (basic, advanced)
+* **RAG / retrieval** — search type (hybrid, dense, sparse), chunks per retrieval, reranking and rerank top-k
+* **Agent** — recursion limit, max research iterations per plan, and the default response effort for new chats
 
 ### Using Thinking mode
 
-1. In the composer toolbar, toggle **Fast / Thinking** (Thinking is recommended for analysis, math, comparisons, and anything that benefits from step-by-step reasoning).
-2. Send your message. The assistant streams its reasoning into a collapsible **Thinking** panel above the final answer, including live tool activity (Python execution, document reads, calculator calls).
-3. Click the panel header to expand or collapse it. The thinking content is saved with the message and remains expandable when you reopen the conversation.
+1. Open the **Instant / Thinking** menu next to the Send button and pick **Thinking** (recommended for analysis, math, comparisons, and anything that benefits from step-by-step reasoning). Instant still uses the same tools — it only skips the analysis, verification and quality-review stages.
+2. Send your message. The assistant streams its reasoning and tool activity live. The **Thinking** and execution panels start collapsed — click a header to expand it.
+3. Thinking content is saved with the message and remains expandable when you reopen the conversation.
 
 > Thinking mode works best with Gemini 3 models (which support `thinking_level` and `include_thoughts`). On other providers/models it degrades gracefully to a tool-enabled agent loop without a thought stream.
 
@@ -328,14 +299,11 @@ Settings are managed from the **Settings** page in the UI and persisted to a loc
 
 ```bash
 uv run pytest
-```
-
-Tests live in `tests/` and cover the agent graph (including the thinking tool loop, thinking-config wiring, and fast-mode bypass), RAG builders, per-document retrieval and diversified reranking, local tool execution, chat streaming (thinking markers, tool statuses, error handling), routers, settings, and telemetry.
-
-```bash
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+Tests live in `tests/` and cover the agent graph (routing, plan skipping, streaming drafts, the `__start__` pseudo-node), RAG builders, retrieval and reranking, local tool execution, chat streaming (marker frames, event replay, error handling), routers, settings, evaluation, and telemetry.
 
 ## RAG evaluation
 
@@ -394,49 +362,18 @@ Chunk-level:
 | search type | hit_rate | recall@3 | precision@3 | mrr | ndcg@3 |
 |---|---|---|---|---|---|
 | dense | 0.950 | 0.950 | 0.367 | 0.900 | 0.909 |
-| sparse | 1.000 | 0.975 | 0.367 | 0.942 | 0.936 |
+| sparse | 1.000 | 0.975 | 0.367 | 1.000 | 0.936 |
 | hybrid | 1.000 | 0.975 | 0.367 | 0.900 | 0.910 |
 
 The numbers are high because the corpus is small and each query has at most two relevant documents, but they are no longer trivially perfect: the overlapping topics give the near-miss queries real discrimination. Sparse (BM25) is strong because the corpus uses distinctive technical terms that match verbatim. Dense misses one document-level query and has the lowest MRR, and hybrid recovers it — which is exactly why hybrid is the default. Chunk-level MRR/recall run slightly below document-level for every strategy: retrieval almost always finds the right document, but the exact chunk is pinpointed a little less often. `precision@3` stays low (~0.5 doc-level, ~0.37 chunk-level) because at most one or two of the three returned documents are relevant by construction; treat it as a capacity ceiling, not a regression.
 
-## Deploying to Kubernetes
-
-Kubernetes manifests live in `k8s/` and deploy a single-replica app backed by a persistent volume — the app keeps all state (settings, and the embedded Qdrant store) on a 1Gi PVC mounted at `/data`. PostgreSQL should be deployed separately or use a managed service.
-
-* `namespace.yaml` — the `research-assistant` namespace
-* `configmap.yaml` — non-secret defaults (model, provider, telemetry, environment)
-* `deployment.yaml` — one replica with a `Recreate` strategy (required for the ReadWriteOnce volume), liveness/readiness probes on `/health`, and resource requests/limits
-* `service.yaml` — internal ClusterIP service on port 8000
-* `ingress.yaml` — routes your domain to the app through the nginx ingress controller, with long proxy timeouts and buffering disabled for response streaming
-* `pvc.yaml` — 1Gi `ReadWriteOnce` persistent volume for `/data`
-
-### Secrets
-
-API keys are never committed. `scripts/deploy.sh` reads `.env` (gitignored), builds a Kubernetes Secret from the four `*_API_KEY` values, applies it, and deletes the temporary file afterwards. The Deployment injects them via `envFrom.secretRef`. Note that a Secret is only base64-encoded, not encrypted — anyone with cluster read access can decode it. Use Sealed Secrets or an external secrets operator for production hardening.
-
-### Deploy
-
-```bash
-# first time: creates the Secret from .env and applies all manifests
-bash scripts/deploy.sh
-
-# use a specific image instead of :latest
-IMAGE="ghcr.io/<owner>/research-assistant:<tag>" bash scripts/deploy.sh
-
-# preview without ingress
-kubectl port-forward svc/research-assistant 8000:8000 -n research-assistant
-```
-
-For local kind/minikube there is no cloud load balancer, so point the ingress host at the cluster with `/etc/hosts` and port-forward the nginx controller service.
-
 ## CI/CD
 
-A GitHub Actions workflow (`.github/workflows/ci-cd.yaml`) runs on every push to `main`, `v*` tags, and all pull requests:
+A GitHub Actions workflow (`.github/workflows/ci-cd.yaml`) runs on every push to `master`, `v*` tags, and all pull requests:
 
 * **Lint & Test** — sets up Python 3.14 with `uv`, installs the locked dependencies, then runs `ruff check`, `ruff format --check`, and `pytest`.
 * **RAG Evaluation** — after tests pass, runs the retrieval-only evaluation on the sample dataset/corpus and fails the build if `hit_rate` or `mrr` drop below 0.7.
-* **Build & Push** — on pushes only (after lint/tests pass), builds the Docker image with BuildKit caching and `BAKE_MODELS=true` (so the embedding models ship inside the image) and pushes it to the GitHub Container Registry (`ghcr.io/<owner>/research-assistant`) tagged with the short commit SHA, `latest` on the default branch, and semver tags for `v*` releases.
-* **Deploy** — on pushes to `main` only (after the image is built), deploys the new image to Kubernetes from a self-hosted runner using `scripts/deploy.sh`. The runner must have `kubectl` access to the cluster and a `.env` file with your API keys; secrets are built from it at deploy time and never stored in the repository.
+* **Build & Push** — on pushes to `master` only (after lint/tests pass), builds the Docker image with BuildKit caching and `BAKE_MODELS=true` (so the embedding models ship inside the image) and pushes it to the GitHub Container Registry (`ghcr.io/<owner>/research-assistant`) tagged with the short commit SHA, `latest` on the default branch, and semver tags for `v*` releases.
 
 ## Credits
 

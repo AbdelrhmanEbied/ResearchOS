@@ -60,7 +60,9 @@ def _web_result(title="Title", url="https://example.com", content="body", score=
 
 @pytest.mark.asyncio
 async def test_retrieve_documents_maps_registry_results():
-    registry.register("rag", FakeRag([_rag_doc("alpha", document_id="1", title="a.pdf", chunk_id="c1")]))
+    registry.register(
+        "rag", FakeRag([_rag_doc("alpha", document_id="1", title="a.pdf", chunk_id="c1")])
+    )
 
     docs = await retrieve_documents.ainvoke({"query": "q", "limit": 4})
 
@@ -117,9 +119,7 @@ async def test_web_search_passes_depth_and_max_results():
         {"query": "news", "max_results": 3, "search_depth": "advanced"}
     )
 
-    assert service.calls == [
-        {"query": "news", "max_results": 3, "search_depth": "advanced"}
-    ]
+    assert service.calls == [{"query": "news", "max_results": 3, "search_depth": "advanced"}]
     assert results == [
         {"title": "Title", "url": "https://example.com", "content": "body", "score": 0.5}
     ]

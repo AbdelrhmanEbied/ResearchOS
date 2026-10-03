@@ -68,9 +68,7 @@ def _default_llm_config() -> tuple[str, str]:
     request_cfg = _request_llm_config.get() or {}
     stored = get_settings_store().get_llm()
     model = request_cfg.get("model") or stored.get("model") or DEFAULT_MODEL
-    provider = (
-        request_cfg.get("model_provider") or stored.get("model_provider") or DEFAULT_PROVIDER
-    )
+    provider = request_cfg.get("model_provider") or stored.get("model_provider") or DEFAULT_PROVIDER
     return model, provider
 
 

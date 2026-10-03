@@ -85,9 +85,7 @@ class FakeStructured:
         self._response = response
 
     async def ainvoke(self, messages, **kwargs):
-        self._recorder.append(
-            {"schema": self._schema, "messages": messages, "kwargs": kwargs}
-        )
+        self._recorder.append({"schema": self._schema, "messages": messages, "kwargs": kwargs})
         return self._response
 
 
@@ -117,9 +115,7 @@ def _default_responses(tasks):
             objective="answer the question",
             tasks=tasks,
         ),
-        SearchQueries: SearchQueries(
-            queries=["alpha query", "beta query", "gamma query"]
-        ),
+        SearchQueries: SearchQueries(queries=["alpha query", "beta query", "gamma query"]),
         ClusterOutput: ClusterOutput(
             themes=[ThemeDraft(name="Theme", summary="summary", evidence_ids=[])]
         ),
@@ -127,9 +123,7 @@ def _default_responses(tasks):
         VerifyOutput: VerifyOutput(
             verdicts=[ClaimVerdict(index=0, status="supported", reasoning="ok")]
         ),
-        OutlineOutput: OutlineOutput(
-            sections=[OutlineSection(heading="Intro", summary="s")] * 3
-        ),
+        OutlineOutput: OutlineOutput(sections=[OutlineSection(heading="Intro", summary="s")] * 3),
         QualityOutput: QualityOutput(passed=True, feedback=[]),
         CodeScript: CodeScript(code="print(1)", explanation="compute"),
         FindingOutput: FindingOutput(findings=["the result is 1"]),
@@ -171,9 +165,7 @@ def setup(monkeypatch, *, tasks, responses=None, rag_docs=None, web_results=None
         "agent.nodes.writing.get_llm",
         lambda *a, **k: FakeDraftLLM(draft_calls),
     )
-    monkeypatch.setattr(
-        "agent.tools.web_tools.fetch_page", lambda url, timeout=15: PAGE_TEXT
-    )
+    monkeypatch.setattr("agent.tools.web_tools.fetch_page", lambda url, timeout=15: PAGE_TEXT)
 
     rag = FakeRag(rag_docs if rag_docs is not None else [])
     web = FakeWebSearch(web_results)
@@ -208,7 +200,9 @@ async def test_graph_runs_full_pipeline(monkeypatch):
     docs = [_rag_doc("document passage", document_id="1", title="a.pdf", chunk_id="c1")]
     graph, structured, draft, rag, web = setup(
         monkeypatch,
-        tasks=_tasks(("web", "find facts"), ("document", "read the report"), ("code", "compute it")),
+        tasks=_tasks(
+            ("web", "find facts"), ("document", "read the report"), ("code", "compute it")
+        ),
         rag_docs=docs,
     )
 
@@ -234,7 +228,9 @@ async def test_graph_sources_cover_web_document_and_code(monkeypatch):
     docs = [_rag_doc("document passage", document_id="1", title="a.pdf", chunk_id="c1")]
     graph, *_ = setup(
         monkeypatch,
-        tasks=_tasks(("web", "find facts"), ("document", "read the report"), ("code", "compute it")),
+        tasks=_tasks(
+            ("web", "find facts"), ("document", "read the report"), ("code", "compute it")
+        ),
         rag_docs=docs,
     )
 
@@ -306,9 +302,7 @@ async def test_search_depth_reaches_web_tool(monkeypatch):
 async def test_web_limits_come_from_settings(monkeypatch):
     from settings import get_settings_store
 
-    get_settings_store().set_web(
-        results_per_query=9, pages_fetched=2, search_depth="advanced"
-    )
+    get_settings_store().set_web(results_per_query=9, pages_fetched=2, search_depth="advanced")
     graph, _, _, _, web = setup(monkeypatch, tasks=_tasks(("web", "find facts")))
 
     await run(graph, initial_state("what happened?"))
@@ -392,7 +386,9 @@ async def test_chat_override_beats_the_router(monkeypatch):
     graph, structured, draft, web, *_ = setup(
         monkeypatch,
         tasks=_tasks(("web", "find facts")),
-        responses={RouteDecision: RouteDecision(decision="research", tools=["web"], reason="model")},
+        responses={
+            RouteDecision: RouteDecision(decision="research", tools=["web"], reason="model")
+        },
     )
 
     result = await run(graph, initial_state("hello", mode_override="chat"))
@@ -411,9 +407,7 @@ async def test_source_override_forces_one_tool(monkeypatch):
         responses={RouteDecision: RouteDecision(decision="quick", tools=[], reason="model")},
     )
 
-    result = await run(
-        graph, initial_state("what does my file say?", source_override="documents")
-    )
+    result = await run(graph, initial_state("what does my file say?", source_override="documents"))
 
     assert result["intent"] == "research"
     assert result["allowed_tools"] == ["document"]
@@ -445,7 +439,9 @@ async def test_single_tool_research_skips_the_planner(monkeypatch):
     graph, structured, _, rag, web = setup(
         monkeypatch,
         tasks=_tasks(("web", "find facts")),
-        responses={RouteDecision: RouteDecision(decision="research", tools=["web"], reason="model")},
+        responses={
+            RouteDecision: RouteDecision(decision="research", tools=["web"], reason="model")
+        },
     )
 
     result = await run(graph, initial_state("search for it"))
@@ -602,9 +598,9 @@ async def test_astream_events_reports_failed_step(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("llm exploded")
 
-    monkeypatch.setattr("agent.nodes.writing.get_llm", lambda *a, **k: type(
-        "Broken", (), {"astream": boom}
-    )())
+    monkeypatch.setattr(
+        "agent.nodes.writing.get_llm", lambda *a, **k: type("Broken", (), {"astream": boom})()
+    )
 
     adapter = AgentEventAdapter()
     events = []

@@ -39,7 +39,10 @@ def _sanitize(value: Any, *, max_str: int, max_items: int, depth: int) -> Any:
         return str(value)[:max_str]
     if isinstance(value, dict):
         items = list(value.items())[:max_items]
-        out = {str(k): _sanitize(v, max_str=max_str, max_items=max_items, depth=depth - 1) for k, v in items}
+        out = {
+            str(k): _sanitize(v, max_str=max_str, max_items=max_items, depth=depth - 1)
+            for k, v in items
+        }
         if len(value) > max_items:
             out["…"] = f"+{len(value) - max_items} more keys"
         return out

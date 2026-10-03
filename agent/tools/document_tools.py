@@ -27,9 +27,7 @@ def _retrieve_documents(
     query: str, *, limit: int = 8, search_type: str | None = None
 ) -> list[dict]:
     rag = registry.get("rag")
-    docs = rag.retrieve(
-        query=query, limit=limit, search_type=search_type or _default_search_type()
-    )
+    docs = rag.retrieve(query=query, limit=limit, search_type=search_type or _default_search_type())
     out = []
     for d in docs:
         out.append(

@@ -1,5 +1,5 @@
 [project]
-name = "research-assistant"
+name = "researchos"
 version = "0.1.0"
 description = "Local-first AI research assistant with Hybrid RAG, FastAPI, LangGraph, and Qdrant."
 readme = "README.md"

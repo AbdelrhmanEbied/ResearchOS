@@ -2113,7 +2113,7 @@ wheels = [
 ]
 
 [[package]]
-name = "research-assistant"
+name = "researchos"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

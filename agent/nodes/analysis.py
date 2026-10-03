@@ -39,7 +39,8 @@ async def cluster(state: AgentState) -> dict:
         ]
     )
     themes = [
-        Theme(id=uuid4().hex, name=t.name, summary=t.summary, evidence_ids=t.evidence_ids) for t in response.themes
+        Theme(id=uuid4().hex, name=t.name, summary=t.summary, evidence_ids=t.evidence_ids)
+        for t in response.themes
     ]
     return {"themes": themes, "status": "analyzing"}
 

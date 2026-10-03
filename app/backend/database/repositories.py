@@ -233,7 +233,7 @@ class DocumentRepository:
             .options(joinedload(Document.links).joinedload(ConversationDocument.conversation))
             .order_by(Document.id.desc())
         )
-        return list(result.scalars().all())
+        return list(result.scalars().unique().all())
 
     async def link_to_conversation(self, conversation_id: int, document_id: int) -> ConversationDocument:
         link = ConversationDocument(

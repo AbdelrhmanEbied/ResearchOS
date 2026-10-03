@@ -14,6 +14,7 @@ from agent.llms import (
     get_request_api_key,
     set_request_api_key,
     set_request_conversation_id,
+    set_request_llm_config,
 )
 from app.backend.database.repositories import (
     ConversationRepository,
@@ -21,8 +22,20 @@ from app.backend.database.repositories import (
     MessageRepository,
 )
 from app.backend.schemas.chat import ChatRequest, RegenerateRequest
+from app.backend.services.agent_events import EVENT_MARKER, AgentEventAdapter, encode_event
+from app.backend.services.agent_telemetry import AgentRunRecorder
 from settings import get_settings_store
 from telemetry import clear_request_tracking, start_request_tracking
+
+__all__ = [
+    "DETAILS_MARKER",
+    "ERROR_MARKER",
+    "EVENT_MARKER",
+    "GRAPH_RECURSION_LIMIT",
+    "SOURCES_MARKER",
+    "THINKING_MARKER",
+    "ChatService",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -31,50 +44,7 @@ DETAILS_MARKER = "@@RESEARCH_DETAILS@@"
 ERROR_MARKER = "@@RESEARCH_ERROR@@"
 THINKING_MARKER = "@@RESEARCH_THINKING@@"
 
-
-def _split_content_parts(content) -> tuple[list[str], list[str]]:
-    text_parts: list[str] = []
-    thinking_parts: list[str] = []
-
-    if isinstance(content, str):
-        if content:
-            text_parts.append(content)
-        return text_parts, thinking_parts
-
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, str):
-                if block:
-                    text_parts.append(block)
-            elif isinstance(block, dict):
-                block_type = block.get("type")
-                if block_type == "thinking":
-                    thought = block.get("thinking") or block.get("text")
-                    if thought:
-                        thinking_parts.append(thought)
-                elif block_type == "text":
-                    text = block.get("text")
-                    if text:
-                        text_parts.append(text)
-
-    return text_parts, thinking_parts
-
-
-def _chunk_text_parts(content) -> list[str]:
-    text, _ = _split_content_parts(content)
-    return text
-
-
-_TOOL_ACTIVITY = {
-    "calculator": "Calling calculator...",
-    "python_code_executor": "Running Python...",
-    "list_documents": "Listing documents...",
-    "read_document": "Reading documents...",
-}
-
-
-def _tool_status_line(tool_name: str) -> str:
-    return _TOOL_ACTIVITY.get(tool_name) or f"Calling {tool_name}..."
+GRAPH_RECURSION_LIMIT = 150
 
 
 PROVIDER_LABELS = {
@@ -203,7 +173,7 @@ class ChatService:
         return await ConversationRepository(self.db).update_title(conversation_id, title)
 
     async def _attach_document_names(self, sources: list[dict]) -> list[dict]:
-        doc_ids = {s.get("document_id") for s in sources if s.get("document_id")}
+        doc_ids = {str(s.get("document_id")) for s in sources if s.get("document_id")}
         names: dict[str, str] = {}
         if doc_ids:
             all_docs = {str(doc.id): doc.name for doc in await DocumentRepository(self.db).list_all()}
@@ -213,8 +183,11 @@ class ChatService:
         for source in sources:
             label = source.get("label")
             doc_id = source.get("document_id")
-            if not label and doc_id:
-                label = names.get(doc_id) or f"Document {doc_id}"
+            db_name = names.get(str(doc_id)) if doc_id else None
+            if db_name:
+                label = db_name
+            elif not label and doc_id:
+                label = f"Document {doc_id}"
             enriched.append({**source, "label": label})
         return enriched
 
@@ -300,26 +273,27 @@ class ChatService:
         generate_title: bool,
     ) -> AsyncGenerator[str]:
         set_request_api_key(request_api_key)
+        set_request_llm_config(llm_config)
         set_request_conversation_id(str(conversation_id))
 
         tracker = None
+        recorder: AgentRunRecorder | None = None
+        title_task: asyncio.Task | None = None
         conversation = None
+        details: dict | None = None
         assistant_buffer: list[str] = []
         sources: list[dict] = []
         assistant_message_id: int | None = None
-        thinking_segments: list[str] = []
-        call_buffer: list[str] = []
-        call_thinking: list[str] = []
-        thinking_mode = (agent_mode or "fast") == "thinking"
+        adapter = AgentEventAdapter()
 
         try:
             conversation = await self._get_conversation(conversation_id)
             if conversation is None:
                 raise ValueError(f"Conversation {conversation_id} not found")
             if generate_title and not conversation["title"]:
-                title = await self.generate_title(query, llm_config)
-                if title:
-                    await self._set_title(conversation["id"], title)
+                title_task = asyncio.create_task(
+                    self.generate_title(query, llm_config)
+                )
 
             if history is None:
                 history = await self._get_message_history(conversation_id)
@@ -327,28 +301,37 @@ class ChatService:
             if persist_user:
                 await self._persist_message(conversation_id, "user", query)
 
+            agent_settings = get_settings_store().get_agent()
+            effort = agent_mode or agent_settings["default_effort"]
+            recursion_limit = int(agent_settings["recursion_limit"]) or GRAPH_RECURSION_LIMIT
+
             tracker = start_request_tracking(
                 route="/chat/",
                 conversation_id=conversation_id,
                 model=self._generation_model_name(llm_config),
                 embedding_model=self._embedding_model_name(),
             )
+            self._tag_request(
+                tracker, mode=mode, source=source, retrieval=retrieval, effort=effort
+            )
+            recorder = AgentRunRecorder(tracker)
 
             state = {
                 "query": query,
                 "conversation_id": str(conversation_id),
                 "history": history,
                 "llm_config": llm_config,
+                "retrieval_config": retrieval,
+                "agent_mode": effort,
                 "mode_override": mode,
                 "source_override": source,
-                "retrieval_config": retrieval,
-                "agent_mode": agent_mode,
             }
 
             config = {
                 "configurable": {
                     "thread_id": str(conversation_id),
-                }
+                },
+                "recursion_limit": recursion_limit,
             }
 
             async with tracker.span(
@@ -356,62 +339,24 @@ class ChatService:
                 span_type="AGENT",
                 latency_metric="agent_latency_ms",
             ):
-                async for event in self.graph.astream_events(
-                    state,
-                    config=config,
-                    version="v2",
+                async for event in adapter.stream(
+                    self.graph.astream_events(state, config=config, version="v2")
                 ):
-                    if event["event"] == "on_chat_model_stream":
-                        node = event.get("metadata", {}).get("langgraph_node")
-                        chunk = event["data"]["chunk"]
-
-                        if node == "agent_reason" and thinking_mode:
-                            text_parts, thinking_parts = _split_content_parts(chunk.content)
-                            for thought in thinking_parts:
-                                if thought:
-                                    call_thinking.append(thought)
-                                    yield f"{thought}\n{THINKING_MARKER}\n"
-                            call_buffer.extend(text_parts)
-                            continue
-
-                        if node != "generate_answer":
-                            continue
-
-                        for text in _chunk_text_parts(chunk.content):
-                            if text:
-                                assistant_buffer.append(text)
-                                yield text
-
-                    elif event["event"] == "on_tool_start" and thinking_mode:
-                        status = _tool_status_line(event.get("name"))
-                        thinking_segments.append(status)
-                        yield f"{status}\n{THINKING_MARKER}\n"
-
-                    elif event["event"] == "on_chat_model_end":
-                        node = event.get("metadata", {}).get("langgraph_node")
-                        if node != "agent_reason" or not thinking_mode:
-                            continue
-                        thought_text = "".join(call_thinking).strip()
-                        call_thinking.clear()
-                        if thought_text:
-                            thinking_segments.append(thought_text)
-
-                        output = event["data"].get("output")
-                        text = "".join(call_buffer).strip()
-                        call_buffer.clear()
-                        if getattr(output, "tool_calls", None):
-                            continue
+                    recorder.handle(event)
+                    if event.get("type") == "message_delta":
+                        text = event.get("text") or ""
                         if text:
                             assistant_buffer.append(text)
                             yield text
+                    else:
+                        yield encode_event(event)
 
-                    elif event["event"] == "on_chain_end":
-                        if event.get("metadata", {}).get("langgraph_node") != "prepare_prompt":
-                            continue
-                        output = event["data"].get("output")
-                        if isinstance(output, dict) and output.get("sources"):
-                            sources = output["sources"]
-
+            sources = adapter.sources
+            if title_task is not None:
+                title = await title_task
+                title_task = None
+                if title:
+                    await self._set_title(conversation["id"], title)
             details = self._build_details(
                 tracker,
                 llm_config,
@@ -419,48 +364,57 @@ class ChatService:
                 model=self._generation_model_name(llm_config),
                 provider=self._generation_provider(llm_config),
                 agent_mode=agent_mode,
+                usage=adapter.usage or None,
             )
 
-            if tracker is not None:
-                tracker.finish(success=True)
+            self._finish_tracking(recorder, adapter, tracker, sources, assistant_buffer)
 
         except ClientDisconnect:
-            if tracker is not None:
-                tracker.finish(success=False, error_type="ClientDisconnect")
+            self._finish_tracking(
+                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                error_type="ClientDisconnect",
+            )
             raise
         except asyncio.CancelledError:
-            if tracker is not None:
-                tracker.finish(success=False, error_type="Cancelled")
+            self._finish_tracking(
+                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                error_type="Cancelled",
+            )
             raise
         except Exception as exc:
-            if tracker is not None:
-                tracker.finish(success=False, error_type=type(exc).__name__)
+            self._finish_tracking(
+                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                error_type=type(exc).__name__,
+            )
             logger.warning("Chat generation failed for conversation %s: %s", conversation_id, exc)
-            error_payload = {"message": str(exc) or type(exc).__name__}
+            message = str(exc) or type(exc).__name__
+            error_payload = {"message": message}
             prefix = "\n\n" if assistant_buffer else ""
+            yield encode_event(adapter.failure_event(message))
             yield f"{prefix}{ERROR_MARKER}\n{json.dumps(error_payload)}\n"
             return
         finally:
+            if title_task is not None:
+                title_task.cancel()
             if tracker is not None:
                 clear_request_tracking()
             set_request_api_key(None)
+            set_request_llm_config(None)
             set_request_conversation_id(None)
 
-        full_answer = "".join(assistant_buffer).strip()
+        full_answer = adapter.answer.strip() or "".join(assistant_buffer).strip()
         if full_answer:
             assistant_message_id = await self._persist_message(
                 conversation_id, "assistant", full_answer
             )
 
-        if assistant_message_id is not None and (sources or details or thinking_segments):
+        if assistant_message_id is not None and (sources or details):
             final_sources = await self._attach_document_names(sources)
             extra: dict = {}
             if final_sources:
                 extra["sources"] = final_sources
             if details:
                 extra["details"] = details
-            if thinking_segments:
-                extra["thinking"] = "\n\n".join(thinking_segments)
             await self._update_message_metadata(assistant_message_id, extra or None)
 
         if sources:
@@ -472,6 +426,59 @@ class ChatService:
             yield f"{DETAILS_MARKER}\n{json.dumps(details)}\n"
 
     @staticmethod
+    def _finish_tracking(
+        recorder: AgentRunRecorder,
+        adapter: AgentEventAdapter,
+        tracker,
+        sources: list[dict],
+        assistant_buffer: list[str],
+        *,
+        success: bool = True,
+        error_type: str | None = None,
+    ) -> None:
+        """Flush run stats into telemetry, then persist the request event."""
+        if tracker is None:
+            return
+        decision = adapter.route_decision or {}
+        if recorder is not None:
+            recorder.finish(
+                intent=decision.get("intent"),
+                allowed_tools=decision.get("allowed_tools"),
+                sources=sources or adapter.sources,
+                answer=adapter.answer or "".join(assistant_buffer),
+                usage=adapter.usage or None,
+            )
+        tracker.finish(success=success, error_type=error_type)
+
+    @staticmethod
+    def _tag_request(
+        tracker,
+        *,
+        mode: str | None,
+        source: str | None,
+        retrieval: dict | None,
+        effort: str | None = None,
+    ) -> None:
+        if tracker is None:
+            return
+        if mode:
+            tracker.add_tag("mode", mode)
+        if source:
+            tracker.add_tag("source", source)
+        if effort:
+            tracker.add_tag("effort", effort)
+        if not retrieval:
+            return
+        if retrieval.get("search_type"):
+            tracker.add_tag("search_type", retrieval["search_type"])
+        if retrieval.get("limit"):
+            tracker.add_tag("retrieval_limit", retrieval["limit"])
+        if retrieval.get("rerank") is not None:
+            tracker.add_tag("rerank", retrieval["rerank"])
+        if retrieval.get("search_depth"):
+            tracker.add_tag("search_depth", retrieval["search_depth"])
+
+    @staticmethod
     def _build_details(
         tracker,
         llm_config: dict | None,
@@ -480,9 +487,23 @@ class ChatService:
         model: str | None,
         provider: str | None,
         agent_mode: str | None = None,
+        usage: dict | None = None,
     ) -> dict:
         metrics = tracker.metrics() if tracker is not None else {}
         tags = tracker.tags() if tracker is not None else {}
+
+        if usage:
+            tokens = {
+                "input_tokens": usage.get("input_tokens"),
+                "output_tokens": usage.get("output_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            }
+        else:
+            tokens = {
+                "input_tokens": metrics.get("input_tokens"),
+                "output_tokens": metrics.get("output_tokens"),
+                "total_tokens": metrics.get("total_tokens"),
+            }
 
         return {
             "model": model or (llm_config or {}).get("model"),
@@ -505,11 +526,7 @@ class ChatService:
                 "reranker_latency_ms": metrics.get("reranker_latency_ms"),
                 "generation_latency_ms": metrics.get("llm_latency_ms"),
             },
-            "tokens": {
-                "input_tokens": metrics.get("input_tokens"),
-                "output_tokens": metrics.get("output_tokens"),
-                "total_tokens": metrics.get("total_tokens"),
-            },
+            "tokens": tokens,
         }
 
     async def export_conversation(self, conversation_id: int, fmt: str) -> str:

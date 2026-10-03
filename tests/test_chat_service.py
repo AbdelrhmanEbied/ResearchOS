@@ -31,9 +31,7 @@ async def db_engine():
         await conn.run_sync(Base.metadata.create_all)
     async with engine.begin() as conn:
         await conn.run_sync(
-            lambda conn: conn.execute(
-                Conversation.__table__.insert(), {"title": "existing"}
-            )
+            lambda conn: conn.execute(Conversation.__table__.insert(), {"title": "existing"})
         )
     yield engine
     await engine.dispose()
@@ -146,7 +144,11 @@ class FakeGraph:
             "route_intent",
             "route_intent",
             parents=["root"],
-            output={"intent": "research", "allowed_tools": ["web"], "routing_reason": "needs facts"},
+            output={
+                "intent": "research",
+                "allowed_tools": ["web"],
+                "routing_reason": "needs facts",
+            },
         )
         yield _chain_start("sg1", "Web Search", "task_web", parents=["root"])
         yield _tool(
@@ -348,8 +350,7 @@ async def _get_messages(session_factory, conversation_id):
     async with session_factory() as db:
         messages = await MessageRepository(db).list_for_history(conversation_id)
         return [
-            {"id": m.id, "role": m.role, "content": m.content, "extra": m.extra}
-            for m in messages
+            {"id": m.id, "role": m.role, "content": m.content, "extra": m.extra} for m in messages
         ]
 
 

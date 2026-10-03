@@ -60,7 +60,7 @@ EFFORTS = ("instant", "thinking")
 def _clamp(value: Any, low: int, high: int, default: int) -> int:
     try:
         return max(low, min(high, int(value)))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

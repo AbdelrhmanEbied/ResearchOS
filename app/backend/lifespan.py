@@ -58,9 +58,7 @@ async def lifespan(app: FastAPI):
                 ("rag.rag_schemas", "RetrievedDocuments"),
             ],
         )
-        checkpointer_cm = AsyncPostgresSaver.from_conn_string(
-            PG_URL, serde=checkpointer_serde
-        )
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(PG_URL, serde=checkpointer_serde)
         app.state.checkpointer = await checkpointer_cm.__aenter__()
         app.state._checkpointer_cm = checkpointer_cm
         await app.state.checkpointer.setup()

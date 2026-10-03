@@ -369,7 +369,13 @@ def test_agent_run_recorder_flattens_stream_events(store, file_config):
     recorder.handle({"type": "agent_started", "id": "root"})
     recorder.handle({"type": "tool_started", "id": "t1", "name": "web_search"})
     recorder.handle(
-        {"type": "tool_finished", "id": "t1", "name": "web_search", "ok": True, "duration_ms": 120.5}
+        {
+            "type": "tool_finished",
+            "id": "t1",
+            "name": "web_search",
+            "ok": True,
+            "duration_ms": 120.5,
+        }
     )
     recorder.handle({"type": "tool_started", "id": "t2", "name": "retrieve_documents"})
     recorder.handle(
@@ -384,8 +390,12 @@ def test_agent_run_recorder_flattens_stream_events(store, file_config):
     recorder.handle(
         {"type": "subgraph_finished", "id": "s1", "label": "Web Search", "duration_ms": 500.0}
     )
-    recorder.handle({"type": "subgraph_finished", "id": "s2", "label": "Quality Review", "duration_ms": 100.0})
-    recorder.handle({"type": "subgraph_finished", "id": "s3", "label": "Quality Review", "duration_ms": 150.0})
+    recorder.handle(
+        {"type": "subgraph_finished", "id": "s2", "label": "Quality Review", "duration_ms": 100.0}
+    )
+    recorder.handle(
+        {"type": "subgraph_finished", "id": "s3", "label": "Quality Review", "duration_ms": 150.0}
+    )
     recorder.handle(
         {
             "type": "agent_status",
@@ -396,7 +406,13 @@ def test_agent_run_recorder_flattens_stream_events(store, file_config):
         }
     )
     recorder.handle(
-        {"type": "agent_status", "node": "replan", "status": "done", "label": "Replan", "duration_ms": 10.0}
+        {
+            "type": "agent_status",
+            "node": "replan",
+            "status": "done",
+            "label": "Replan",
+            "duration_ms": 10.0,
+        }
     )
     recorder.handle({"type": "error", "message": "boom"})
     recorder.handle({"type": "message_delta", "text": "ignored"})

@@ -88,7 +88,11 @@ class TelemetryTracker:
             return
         try:
             self._spans.append(
-                Span(name=str(name), span_type=str(span_type), duration_ms=round(float(duration_ms), 3))
+                Span(
+                    name=str(name),
+                    span_type=str(span_type),
+                    duration_ms=round(float(duration_ms), 3),
+                )
             )
         except (TypeError, ValueError) as exc:
             logger.debug("Dropped span %s=%r: %s", name, duration_ms, exc)

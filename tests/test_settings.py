@@ -132,9 +132,7 @@ def test_settings_endpoints(tmp_path, monkeypatch):
 
         assert client.put("/settings/agent", json={"recursion_limit": 5}).status_code == 422
         assert client.put("/settings/web", json={"pages_fetched": 50}).status_code == 422
-        assert (
-            client.put("/settings/agent", json={"default_effort": "turbo"}).status_code == 422
-        )
+        assert client.put("/settings/agent", json={"default_effort": "turbo"}).status_code == 422
 
 
 def test_store_web_and_agent_defaults_and_overrides(isolated_store):

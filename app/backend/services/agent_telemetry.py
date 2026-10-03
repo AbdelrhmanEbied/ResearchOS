@@ -14,7 +14,7 @@ def _slug(value: Any) -> str:
 def _ms(value: Any) -> float:
     try:
         return max(0.0, float(value or 0.0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
@@ -107,7 +107,9 @@ class AgentRunRecorder:
         tracker.add_metric("stage_runs", sum(self._stage_runs.values()))
         tracker.add_metric("node_runs", sum(self._node_runs.values()))
         tracker.add_metric("replans", self._node_runs.get("replan", 0))
-        tracker.add_metric("quality_revisions", max(0, self._stage_runs.get("Quality Review", 0) - 1))
+        tracker.add_metric(
+            "quality_revisions", max(0, self._stage_runs.get("Quality Review", 0) - 1)
+        )
         tracker.add_metric("agent_errors", self._errors)
         tracker.add_metric("sources_count", len(sources or []))
         tracker.add_metric("answer_chars", len(answer or ""))

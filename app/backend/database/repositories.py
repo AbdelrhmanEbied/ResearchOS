@@ -235,7 +235,9 @@ class DocumentRepository:
         )
         return list(result.scalars().unique().all())
 
-    async def link_to_conversation(self, conversation_id: int, document_id: int) -> ConversationDocument:
+    async def link_to_conversation(
+        self, conversation_id: int, document_id: int
+    ) -> ConversationDocument:
         link = ConversationDocument(
             conversation_id=conversation_id,
             document_id=document_id,

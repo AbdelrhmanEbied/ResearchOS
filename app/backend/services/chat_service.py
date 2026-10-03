@@ -176,7 +176,9 @@ class ChatService:
         doc_ids = {str(s.get("document_id")) for s in sources if s.get("document_id")}
         names: dict[str, str] = {}
         if doc_ids:
-            all_docs = {str(doc.id): doc.name for doc in await DocumentRepository(self.db).list_all()}
+            all_docs = {
+                str(doc.id): doc.name for doc in await DocumentRepository(self.db).list_all()
+            }
             names = {key: value for key, value in all_docs.items() if key in doc_ids}
 
         enriched = []
@@ -291,9 +293,7 @@ class ChatService:
             if conversation is None:
                 raise ValueError(f"Conversation {conversation_id} not found")
             if generate_title and not conversation["title"]:
-                title_task = asyncio.create_task(
-                    self.generate_title(query, llm_config)
-                )
+                title_task = asyncio.create_task(self.generate_title(query, llm_config))
 
             if history is None:
                 history = await self._get_message_history(conversation_id)
@@ -311,9 +311,7 @@ class ChatService:
                 model=self._generation_model_name(llm_config),
                 embedding_model=self._embedding_model_name(),
             )
-            self._tag_request(
-                tracker, mode=mode, source=source, retrieval=retrieval, effort=effort
-            )
+            self._tag_request(tracker, mode=mode, source=source, retrieval=retrieval, effort=effort)
             recorder = AgentRunRecorder(tracker)
 
             state = {
@@ -371,19 +369,34 @@ class ChatService:
 
         except ClientDisconnect:
             self._finish_tracking(
-                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                recorder,
+                adapter,
+                tracker,
+                sources,
+                assistant_buffer,
+                success=False,
                 error_type="ClientDisconnect",
             )
             raise
         except asyncio.CancelledError:
             self._finish_tracking(
-                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                recorder,
+                adapter,
+                tracker,
+                sources,
+                assistant_buffer,
+                success=False,
                 error_type="Cancelled",
             )
             raise
         except Exception as exc:
             self._finish_tracking(
-                recorder, adapter, tracker, sources, assistant_buffer, success=False,
+                recorder,
+                adapter,
+                tracker,
+                sources,
+                assistant_buffer,
+                success=False,
                 error_type=type(exc).__name__,
             )
             logger.warning("Chat generation failed for conversation %s: %s", conversation_id, exc)

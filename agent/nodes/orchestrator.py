@@ -62,8 +62,7 @@ def _plan_system(state: AgentState) -> str:
         )
     if not is_thinking(state):
         extra.append(
-            "Keep the plan minimal: at most 2 tasks, and only tasks that are "
-            "strictly necessary."
+            "Keep the plan minimal: at most 2 tasks, and only tasks that are strictly necessary."
         )
     if not extra:
         return system

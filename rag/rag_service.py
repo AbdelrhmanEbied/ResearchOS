@@ -178,7 +178,10 @@ def create_rag_service(
     sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25", cache_dir=cache_dir)
     dense_model = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
 
-    client = QdrantClient(path=db_path)
+    if db_path:
+        client = QdrantClient(path=db_path)
+    else:
+        client = QdrantClient(url=QDRANT_URL or "http://localhost:6333", api_key=QDRANT_API_KEY)
 
     embedder = DocumentEmbedder(
         dense_embedding_model=dense_model,

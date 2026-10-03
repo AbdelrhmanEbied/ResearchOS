@@ -30,6 +30,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/research_assistant
+      QDRANT_URL: http://qdrant:6333
     depends_on:
       - postgres
       - qdrant

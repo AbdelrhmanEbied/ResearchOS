@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,7 +17,9 @@ from telemetry import init_telemetry
 
 logger = logging.getLogger("uvicorn.error")
 
-PG_URL = "postgresql://postgres:postgres@localhost:5432/research_assistant"
+PG_URL = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/research_assistant"
+).replace("+asyncpg", "")
 
 
 @asynccontextmanager

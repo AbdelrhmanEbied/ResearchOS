@@ -6,14 +6,14 @@ from fastembed import SparseTextEmbedding
 from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import QdrantClient, models
 
-from agent.agent_schemas import ChatMessage, PromptMode
 from agent.prompts import SYSTEM_PROMPT
+from agent.state.schemas import ChatMessage
 from rag.builders import ContextBuilder, PromptBuilder
 from rag.chunker import DocumentChunker
 from rag.embedder import DocumentEmbedder
 from rag.loader import DocumentLoader
 from rag.qdrant_manager import QDrantManager
-from rag.rag_schemas import KnowledgeResult, RetrievedDocuments, SearchType
+from rag.rag_schemas import KnowledgeResult, PromptMode, RetrievedDocuments, SearchType
 from rag.reranker import Reranker
 from rag.retriever import Retriever
 from telemetry import get_current_tracker

@@ -1,5 +1,5 @@
-from agent.agent_schemas import ChatMessage, PromptMode
-from rag.rag_schemas import Context, RetrievedDocuments
+from agent.state.schemas import ChatMessage
+from rag.rag_schemas import Context, PromptMode, RetrievedDocuments
 
 
 class ContextBuilder:

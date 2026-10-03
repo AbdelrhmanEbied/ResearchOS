@@ -1,173 +1,237 @@
-from types import SimpleNamespace
-
 import pytest
-from qdrant_client import models
 
-import agent.tools as tools_mod
-from agent.llms import set_request_conversation_id
-from agent.tools import build_agent_tools
-
-
-class FakeQdrant:
-    def __init__(self, documents, points):
-        self.documents = documents
-        self.points = points
-        self.list_calls = []
-        self.points_calls = []
-
-    def list_document_ids(self, qdrant_filter=None):
-        self.list_calls.append(qdrant_filter)
-        return self.documents
-
-    def get_points_by_document(self, document_id, qdrant_filter=None, limit=100):
-        combined = models.Filter(must=list((qdrant_filter.must or []) if qdrant_filter else []))
-        combined.must.append(
-            models.FieldCondition(
-                key="document_id",
-                match=models.MatchValue(value=document_id),
-            )
-        )
-        self.points_calls.append((document_id, combined, limit))
-        return [SimpleNamespace(payload=payload) for payload in self.points.get(document_id, [])]
+from agent.sandbox.executor import ExecutionResult
+from agent.tools.code_tools import build_code_evidence, run_code
+from agent.tools.document_tools import (
+    _retrieve_documents,
+    build_document_evidence,
+    documents_available,
+    retrieve_documents,
+)
+from agent.tools.registry import registry
+from agent.tools.web_tools import build_evidence, fetch_url, web_search
+from settings import reset_settings_store
 
 
-def make_tools(qdrant=None):
-    qdrant = qdrant or FakeQdrant(
-        documents=[("1", "a.pdf"), ("2", "b.pdf")],
-        points={"1": [{"text": "alpha one"}, {"text": "alpha two"}]},
+@pytest.fixture(autouse=True)
+def _isolated_registry():
+    registry.clear()
+    reset_settings_store()
+    yield
+    registry.clear()
+    reset_settings_store()
+
+
+class FakeRag:
+    def __init__(self, docs=None):
+        self.docs = docs or []
+        self.calls = []
+
+    def retrieve(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.docs
+
+
+class FakeWebSearch:
+    def __init__(self, results=None):
+        self.results = results or []
+        self.calls = []
+
+    def search(self, query, **kwargs):
+        self.calls.append({"query": query, **kwargs})
+        return self.results
+
+
+def _rag_doc(text="passage", **metadata):
+    return type(
+        "Doc",
+        (),
+        {"text": text, "score": 0.9, "metadata": metadata},
+    )()
+
+
+def _web_result(title="Title", url="https://example.com", content="body", score=0.5):
+    return type(
+        "Result",
+        (),
+        {"title": title, "url": url, "content": content, "score": score},
+    )()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_documents_maps_registry_results():
+    registry.register("rag", FakeRag([_rag_doc("alpha", document_id="1", title="a.pdf", chunk_id="c1")]))
+
+    docs = await retrieve_documents.ainvoke({"query": "q", "limit": 4})
+
+    assert docs == [
+        {
+            "text": "alpha",
+            "score": 0.9,
+            "document_id": "1",
+            "title": "a.pdf",
+            "chunk_id": "c1",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_documents_passes_limit_and_search_type():
+    rag = FakeRag([])
+    registry.register("rag", rag)
+
+    await retrieve_documents.ainvoke({"query": "q", "limit": 7, "search_type": "sparse"})
+
+    assert rag.calls == [{"query": "q", "limit": 7, "search_type": "sparse"}]
+
+
+def test_retrieve_documents_defaults_search_type_from_settings():
+    registry.register("rag", FakeRag([]))
+    _retrieve_documents("q")
+    assert registry.get("rag").calls[0]["search_type"] == "hybrid"
+
+
+def test_documents_available_without_registration():
+    assert documents_available() is False
+    with pytest.raises(KeyError):
+        _retrieve_documents("q")
+
+
+def test_document_evidence_builder():
+    docs = [{"text": "alpha", "score": 0.4, "document_id": "1", "title": "a.pdf", "chunk_id": "c1"}]
+    evidence = build_document_evidence(docs)
+
+    assert len(evidence) == 1
+    assert evidence[0].source_type == "document"
+    assert evidence[0].document_id == "1"
+    assert evidence[0].source_title == "a.pdf"
+    assert evidence[0].metadata == {"chunk_id": "c1"}
+
+
+@pytest.mark.asyncio
+async def test_web_search_passes_depth_and_max_results():
+    service = FakeWebSearch([_web_result()])
+    registry.register("web_search", service)
+
+    results = await web_search.ainvoke(
+        {"query": "news", "max_results": 3, "search_depth": "advanced"}
     )
-    rag = SimpleNamespace(qdrant_manager=qdrant)
-    tools = {tool.name: tool for tool in build_agent_tools(rag)}
-    return tools, qdrant
+
+    assert service.calls == [
+        {"query": "news", "max_results": 3, "search_depth": "advanced"}
+    ]
+    assert results == [
+        {"title": "Title", "url": "https://example.com", "content": "body", "score": 0.5}
+    ]
 
 
-@pytest.mark.parametrize(
-    "expression,expected",
-    [
-        ("2 + 3 * 4", "14"),
-        ("(2 + 3) * 4", "20"),
-        ("2 ** 10", "1024"),
-        ("7 // 2", "3"),
-        ("7 % 2", "1"),
-        ("-5 + 3", "-2"),
-        ("sqrt(16)", "4.0"),
-        ("fabs(-3.5)", "3.5"),
-        ("gcd(12, 8)", "4"),
-        ("mean([1, 2, 3, 4])", "2.5"),
-    ],
-)
-def test_calculator_math(expression, expected):
-    tools, _ = make_tools()
-    assert tools["calculator"].invoke({"expression": expression}) == expected
+def test_web_search_tool_schema_exposes_expected_arguments():
+    assert set(web_search.args) == {"query", "max_results", "search_depth"}
+    assert set(fetch_url.args) == {"url"}
+    assert set(retrieve_documents.args) == {"query", "limit", "search_type"}
+    assert set(run_code.args) == {"code", "timeout"}
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        "__import__('os')",
-        "1.__class__",
-        "(lambda: 1)()",
-        "open('/etc/passwd')",
-        "os.getcwd()",
-        "getattr(math, 'sqrt')",
-        "{}",
-        "[x for x in range(3)]",
-    ],
-)
-def test_calculator_rejects_unsafe_constructs(expression):
-    tools, _ = make_tools()
-    result = tools["calculator"].invoke({"expression": expression})
-    assert "error" in result.lower()
+def test_fetch_url_strips_boilerplate(monkeypatch):
+    html = """
+    <html><head><script>alert(1)</script></head>
+    <body><nav>menu</nav><article><p>Useful paragraph content.</p></article></body></html>
+    """
+
+    class FakeResponse:
+        text = html
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, headers=None):
+            return FakeResponse()
+
+    import agent.tools.web_tools as web_tools
+
+    monkeypatch.setattr(web_tools.httpx, "Client", FakeClient)
+
+    text = fetch_url.invoke({"url": "https://example.com/page"})
+
+    assert "Useful paragraph content." in text
+    assert "alert(1)" not in text
+    assert "menu" not in text
 
 
-def test_code_executor_returns_stdout():
-    tools, _ = make_tools()
-    result = tools["python_code_executor"].invoke({"code": "print(2 + 2)"})
-    assert result == "4"
+def test_web_evidence_builder():
+    evidence = build_evidence(
+        ["passage one", "passage two"],
+        source_url="https://example.com",
+        source_title="Example",
+    )
+
+    assert [e.content for e in evidence] == ["passage one", "passage two"]
+    assert {e.source_url for e in evidence} == {"https://example.com"}
+    assert {e.source_type for e in evidence} == {"web"}
 
 
-def test_code_executor_surfaces_stderr():
-    tools, _ = make_tools()
-    result = tools["python_code_executor"].invoke({"code": "1 / 0"})
-    assert "ZeroDivisionError" in result
+@pytest.mark.asyncio
+async def test_run_code_returns_execution_dict(monkeypatch):
+    async def fake_execute(code, timeout=10):
+        return ExecutionResult(success=True, stdout="4\n", exit_code=0)
+
+    monkeypatch.setattr("agent.tools.code_tools.execute_code", fake_execute)
+
+    out = await run_code.ainvoke({"code": "print(2 + 2)"})
+
+    assert out == {
+        "success": True,
+        "stdout": "4\n",
+        "stderr": "",
+        "exit_code": 0,
+        "error": None,
+        "timed_out": False,
+    }
 
 
-def test_code_executor_times_out(monkeypatch):
-    monkeypatch.setattr(tools_mod, "EXEC_TIMEOUT_SECONDS", 1)
-    tools, _ = make_tools()
-    result = tools["python_code_executor"].invoke({"code": "import time; time.sleep(5)"})
-    assert "timed out" in result
+def test_code_evidence_builder():
+    evidence = build_code_evidence(
+        ExecutionResult(success=True, stdout="42", exit_code=0), "print(42)"
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].source_type == "code"
+    assert evidence[0].content == "42"
+    assert evidence[0].metadata["exit_code"] == 0
 
 
-def test_read_document_returns_full_text_in_chunk_order():
-    tools, qdrant = make_tools()
-    set_request_conversation_id("9")
-    try:
-        result = tools["read_document"].invoke({"name": "a.pdf"})
-    finally:
-        set_request_conversation_id(None)
-
-    assert result == "alpha one\n\nalpha two"
-    assert qdrant.points_calls[0][0] == "1"
+@pytest.mark.asyncio
+async def test_run_code_executes_real_python():
+    out = await run_code.ainvoke({"code": "print(2 + 2)"})
+    assert out["success"] is True
+    assert out["stdout"].strip() == "4"
 
 
-def test_read_document_scopes_retrieval_to_conversation():
-    tools, qdrant = make_tools()
-    set_request_conversation_id("9")
-    try:
-        tools["read_document"].invoke({"name": "a.pdf"})
-    finally:
-        set_request_conversation_id(None)
-
-    scope_filter = qdrant.list_calls[0]
-    assert scope_filter is not None
-    assert scope_filter.must[0].key == "conversation_id"
-    assert scope_filter.must[0].match.value == "9"
-
-    _, doc_filter, _ = qdrant.points_calls[0]
-    keys = {condition.key for condition in doc_filter.must}
-    assert keys == {"conversation_id", "document_id"}
+@pytest.mark.asyncio
+async def test_run_code_surfaces_stderr():
+    out = await run_code.ainvoke({"code": "1 / 0"})
+    assert out["success"] is False
+    assert "ZeroDivisionError" in out["stderr"]
 
 
-def test_read_document_unknown_name_lists_available():
-    tools, _ = make_tools()
-    set_request_conversation_id("9")
-    try:
-        result = tools["read_document"].invoke({"name": "missing.pdf"})
-    finally:
-        set_request_conversation_id(None)
-
-    assert "not found" in result
-    assert "a.pdf" in result
-    assert "b.pdf" in result
+@pytest.mark.asyncio
+async def test_run_code_times_out():
+    out = await run_code.ainvoke({"code": "import time; time.sleep(5)", "timeout": 1})
+    assert out["timed_out"] is True or "timed out" in (out["stderr"] + (out["error"] or ""))
 
 
-def test_list_documents_discovery():
-    tools, _ = make_tools()
-    set_request_conversation_id("3")
-    try:
-        result = tools["list_documents"].invoke({})
-    finally:
-        set_request_conversation_id(None)
-
-    assert "a.pdf" in result
-    assert "id: 1" in result
-
-
-def test_list_documents_empty():
-    qdrant = FakeQdrant(documents=[], points={})
-    tools, _ = make_tools(qdrant)
-    result = tools["list_documents"].invoke({})
-    assert "No documents" in result
-
-
-def test_code_executor_runs_in_conversation_workspace(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATA_DIR", str(tmp_path))
-    tools, _ = make_tools()
-    set_request_conversation_id("77")
-    try:
-        result = tools["python_code_executor"].invoke({"code": "import os; print(os.getcwd())"})
-    finally:
-        set_request_conversation_id(None)
-
-    assert str(tmp_path / "workspace" / "77") == result
+@pytest.mark.asyncio
+async def test_run_code_rejects_restricted_imports():
+    out = await run_code.ainvoke({"code": "import os; print(os.getcwd())"})
+    assert out["success"] is False
+    assert "not allowed" in (out["stderr"] + (out["error"] or ""))

@@ -5,7 +5,8 @@ from fastapi import FastAPI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
-from agent.graph import build_agent_graph
+from agent.graphs import build_orchestrator_graph
+from agent.tools.registry import registry
 from agent.web_service import create_web_search_service
 from app.backend.database.base import Base
 from app.backend.database.database import engine
@@ -46,8 +47,12 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing checkpointer...")
         checkpointer_serde = JsonPlusSerializer(
             allowed_msgpack_modules=[
-                ("agent.agent_schemas", "PromptMode"),
-                ("agent.agent_schemas", "KnowledgeSource"),
+                ("agent.state.schemas", "Evidence"),
+                ("agent.state.schemas", "Claim"),
+                ("agent.state.schemas", "Theme"),
+                ("agent.state.schemas", "ResearchPlan"),
+                ("agent.state.schemas", "ResearchTask"),
+                ("agent.state.schemas", "VerificationResult"),
                 ("rag.rag_schemas", "Context"),
                 ("rag.rag_schemas", "KnowledgeResult"),
                 ("rag.rag_schemas", "RetrievedDocuments"),
@@ -60,12 +65,12 @@ async def lifespan(app: FastAPI):
         app.state._checkpointer_cm = checkpointer_cm
         await app.state.checkpointer.setup()
 
+        logger.info("Registering shared services for the agent tools...")
+        registry.register("rag", app.state.rag)
+        registry.register("web_search", app.state.web_search)
+
         logger.info("Building agent graph...")
-        app.state.graph = build_agent_graph(
-            rag=app.state.rag,
-            search_service=app.state.web_search,
-            checkpointer=app.state.checkpointer,
-        )
+        app.state.graph = build_orchestrator_graph()
 
         logger.info("All application services initialized successfully.")
 

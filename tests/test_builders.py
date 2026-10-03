@@ -2,10 +2,9 @@ import uuid
 
 from langchain_core.documents import Document
 
-from agent.agent_schemas import PromptMode
 from rag.builders import ContextBuilder, PromptBuilder
 from rag.chunker import DocumentChunker
-from rag.rag_schemas import Context, KnowledgeResult, RetrievedDocuments, build_sources
+from rag.rag_schemas import Context, KnowledgeResult, PromptMode, RetrievedDocuments, build_sources
 
 
 def make_doc(

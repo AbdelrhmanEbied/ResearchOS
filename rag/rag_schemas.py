@@ -26,6 +26,13 @@ class SearchType(Enum):
     HYBRID = "hybrid"
 
 
+class PromptMode(Enum):
+    CHAT = "chat"
+    SUMMARIZE = "summarize"
+    COMPARE = "compare"
+    EXPLAIN = "explain"
+
+
 @dataclass
 class RetrievedDocuments:
     text: str
